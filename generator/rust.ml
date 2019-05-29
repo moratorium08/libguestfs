@@ -1,5 +1,5 @@
 (* libguestfs
- * Copyright (C) 2009-2019 Red Hat Inc.
+ * Copyright (C) 2019 Red Hat Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -16,16 +16,19 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
 *)
 
-val generate_bindtests : unit -> unit
-val generate_erlang_bindtests : unit -> unit
-val generate_golang_bindtests : unit -> unit
-val generate_gobject_js_bindtests : unit -> unit
-val generate_haskell_bindtests : unit -> unit
-val generate_java_bindtests : unit -> unit
-val generate_lua_bindtests : unit -> unit
-val generate_ocaml_bindtests : unit -> unit
-val generate_perl_bindtests : unit -> unit
-val generate_php_bindtests : unit -> unit
-val generate_python_bindtests : unit -> unit
-val generate_ruby_bindtests : unit -> unit
-val generate_rust_bindtests : unit -> unit
+(* Please read generator/README first. *)
+
+open Std_utils
+open Types
+open Utils
+open Pr
+open Docstrings
+open Optgroups
+open Actions
+open Structs
+open C
+open Events
+
+
+let generate_rust () =
+  generate_header CStyle LGPLv2plus;
