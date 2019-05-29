@@ -983,6 +983,9 @@ and generate_php_bindtests () =
 
   dump "bindtests"
 
+and generate_rust_bindtests () =
+  generate_header CStyle GPLv2plus
+
 (* Language-independent bindings tests - we do it this way to
  * ensure there is parity in testing bindings across all languages.
  *)
