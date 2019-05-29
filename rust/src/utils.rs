@@ -1,0 +1,136 @@
+/* libguestfs Rust bindings
+ * Copyright (C) 2009-2019 Red Hat Inc.
+ *
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2 of the License, or (at your option) any later version.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
+ */
+
+use crate::error::*;
+use std::collections;
+use std::convert::TryFrom;
+use std::ffi;
+use std::os::raw::{c_char, c_void};
+
+extern "C" {
+    fn free(buf: *const c_void);
+}
+
+pub(crate) struct NullTerminatedIter<T: Copy + Clone> {
+    p: *const *const T,
+}
+
+impl<T: Copy + Clone> NullTerminatedIter<T> {
+    pub(crate) fn new(p: *const *const T) -> NullTerminatedIter<T> {
+        NullTerminatedIter { p }
+    }
+}
+
+impl<T: Copy + Clone> Iterator for NullTerminatedIter<T> {
+    type Item = *const T;
+    fn next(&mut self) -> Option<*const T> {
+        let r = unsafe { *(self.p) };
+        if r.is_null() {
+            None
+        } else {
+            self.p = unsafe { self.p.offset(1) };
+            Some(r)
+        }
+    }
+}
+
+#[repr(C)]
+pub(crate) struct RawList<T> {
+    size: u32,
+    ptr: *const T,
+}
+
+pub(crate) struct RawListIter<'a, T> {
+    current: u32,
+    list: &'a RawList<T>,
+}
+
+impl<T> RawList<T> {
+    fn iter<'a>(&'a self) -> RawListIter<'a, T> {
+        RawListIter {
+            current: 0,
+            list: self,
+        }
+    }
+}
+
+impl<'a, T> Iterator for RawListIter<'a, T> {
+    type Item = *const T;
+    fn next(&mut self) -> Option<*const T> {
+        if self.current >= self.list.size {
+            None
+        } else {
+            let elem = unsafe { self.list.ptr.offset(self.current as isize) };
+            self.current += 1;
+            Some(elem)
+        }
+    }
+}
+
+pub(crate) fn arg_string_list(v: &[&str]) -> Result<Vec<ffi::CString>, Error> {
+    let mut w = Vec::new();
+    for x in v.iter() {
+        let y: &str = x;
+        w.push(ffi::CString::new(y)?);
+    }
+    Ok(w)
+}
+
+pub(crate) fn free_string_list(l: *const *const c_char) {
+    for buf in NullTerminatedIter::new(l) {
+        unsafe { free(buf as *const c_void) };
+    }
+    unsafe { free(l as *const c_void) };
+}
+
+pub(crate) fn hashmap(
+    l: *const *const c_char,
+) -> Result<collections::HashMap<String, String>, Error> {
+    let mut map = collections::HashMap::new();
+    let mut iter = NullTerminatedIter::new(l);
+    while let Some(key) = iter.next() {
+        if let Some(val) = iter.next() {
+            let key = unsafe { ffi::CStr::from_ptr(key) }.to_str()?;
+            let val = unsafe { ffi::CStr::from_ptr(val) }.to_str()?;
+            map.insert(key.to_string(), val.to_string());
+        } else {
+            // Internal Error -> panic
+            panic!("odd number of items in hash table");
+        }
+    }
+    Ok(map)
+}
+
+pub(crate) fn struct_list<T, S: TryFrom<*const T, Error = Error>>(
+    l: *const RawList<T>,
+) -> Result<Vec<S>, Error> {
+    let mut v = Vec::new();
+    for x in unsafe { &*l }.iter() {
+        v.push(S::try_from(x)?);
+    }
+    Ok(v)
+}
+
+pub(crate) fn string_list(l: *const *const c_char) -> Result<Vec<String>, Error> {
+    let mut v = Vec::new();
+    for x in NullTerminatedIter::new(l) {
+        let s = unsafe { ffi::CStr::from_ptr(x) }.to_str()?;
+        v.push(s.to_string());
+    }
+    Ok(v)
+}
