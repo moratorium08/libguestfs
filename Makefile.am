@@ -151,6 +151,10 @@ endif
 if HAVE_GOLANG
 SUBDIRS += golang golang/examples
 endif
+if HAVE_RUST
+SUBDIRS += rust
+endif
+
 
 # Unconditional because nothing is built yet.
 SUBDIRS += csharp
