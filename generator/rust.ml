@@ -37,13 +37,15 @@ let generate_rust () =
 #[allow(non_camel_case_types)]
 enum guestfs_h {}
 
+#[link(name = \"guestfs\")]
 extern \"C\" {
     fn guestfs_create() -> *mut guestfs_h;
     fn guestfs_create_flags(flags: i64) -> *mut guestfs_h;
     fn guestfs_close(g: *mut guestfs_h);
-    static GUESTFS_CREATE_NO_ENVIRONMENT: i64;
-    static GUESTFS_CREATE_NO_CLOSE_ON_EXIT: i64;
 }
+
+const GUESTFS_CREATE_NO_ENVIRONMENT: i64 = 1;
+const GUESTFS_CREATE_NO_CLOSE_ON_EXIT: i64 = 2;
 
 pub struct Handle {
     g: *mut guestfs_h,
@@ -61,11 +63,15 @@ pub struct CreateFlags {
 }
 
 impl CreateFlags {
-    pub fn new() -> CreateFlags {
+    pub fn none() -> CreateFlags {
         CreateFlags {
             create_no_environment_flag: false,
             create_no_close_on_exit_flag: false,
         }
+    }
+
+    pub fn new() -> CreateFlags {
+        CreateFlags::none()
     }
 
     pub fn create_no_environment(mut self, flag: bool) -> CreateFlags {
@@ -97,6 +103,7 @@ impl CreateFlags {
 impl Handle {
     pub fn create() -> Result<Handle, &'static str> {
         let g = unsafe { guestfs_create() };
+        println!(\"hoge\");
         if g.is_null() {
             Err(\"failed to create guestfs handle\")
         } else {
