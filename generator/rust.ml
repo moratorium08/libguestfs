@@ -29,9 +29,31 @@ open Structs
 open C
 open Events
 
+(* Utilities for Rust *)
+(* Are there corresponding functions to them? *)
+(* Should they be placed in utils.ml? *)
 let rec indent n = match n with
   | x when x > 0 -> pr "    "; indent (x - 1)
   | _ -> ()
+
+(* split_on_char exists since OCaml 4.04 *)
+(* but current requirements: >=4.01 *)
+let split_on_char c = Str.split (Str.regexp (String.make 1 c))
+
+let snake2caml name =
+  let l = split_on_char '_' name in
+  let l = List.map (fun x -> String.capitalize_ascii x) l in
+  String.concat "" l
+
+
+(* because there is a function which contains 'unsafe' field *)
+let black_list = ["unsafe"]
+
+let translate_bad_symbols s =
+  if List.exists (fun x -> s = x) black_list then
+    s ^ "_"
+  else
+    s
 
 let generate_rust () =
   generate_header CStyle LGPLv2plus;
@@ -204,3 +226,52 @@ impl UUID {
       pr "    }\n";
       pr "}\n"
   ) external_structs;
+  List.iter (
+    fun ({ name = name; shortdesc = shortdesc;
+          style = (ret, args, optargs) }) ->
+      let cname = snake2caml name in
+      if optargs <> [] then (
+        pr "\n";
+        pr "/* Optional Structs */\n";
+        pr "#[derive(Default)]\n";
+        pr "pub struct OptArgs%s {\n" cname;
+        List.iter (
+          fun optarg ->
+            let n = translate_bad_symbols (name_of_optargt optarg) in
+            match optarg with
+            | OBool _ ->
+              pr "    _%s: Option<bool>,\n" n
+            | OInt _ ->
+              pr "    _%s: Option<i32>,\n" n
+            | OInt64 _ ->
+              pr "    _%s: Option<i64>,\n" n
+            | OString _ ->
+              pr "    _%s: Option<String>,\n" n
+            | OStringList _ ->
+              pr "    _%s: Option<Vec<String>>,\n" n
+        ) optargs;
+        pr "}\n\n";
+        pr "impl OptArgs%s {\n" cname;
+        List.iter (
+          fun optarg ->
+            let n = translate_bad_symbols (name_of_optargt optarg) in
+            pr "    pub fn %s(self, %s: " n n;
+            (match optarg with
+            | OBool _ ->
+              pr "bool"
+            | OInt _ ->
+              pr "i32"
+            | OInt64 _ ->
+              pr "i64"
+            | OString _ ->
+              pr "String"
+            | OStringList _ ->
+              pr "Vec<String>"
+            );
+            pr ") -> OptArgs%s {\n" cname;
+            pr "        OptArgs%s { _%s: Some(%s), ..self }\n" cname n n;
+            pr "    }\n"
+        ) optargs;
+        pr "}\n\n";
+      );
+  ) (actions |> external_functions |> sort);
