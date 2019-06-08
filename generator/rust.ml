@@ -29,13 +29,21 @@ open Structs
 open C
 open Events
 
+let rec indent n = match n with
+  | x when x > 0 -> pr "    "; indent (x - 1)
+  | _ -> ()
 
 let generate_rust () =
   generate_header CStyle LGPLv2plus;
 
   pr "
+use std::ffi;
+use std::slice;
+use std::os::raw::c_char;
+
+
 #[allow(non_camel_case_types)]
-enum guestfs_h {}
+enum guestfs_h {}  // opaque struct
 
 #[link(name = \"guestfs\")]
 extern \"C\" {
@@ -119,5 +127,80 @@ impl Handle {
             Ok(Handle { g })
         }
     }
+}\
+
+pub struct UUID {
+    uuid: [u8; 32]
 }
-      "
+
+impl UUID {
+    fn new(uuid: [u8; 32]) -> UUID {
+        UUID { uuid }
+    }
+}
+";
+  List.iter (
+    fun { s_camel_name = name; s_name = c_name; s_cols = cols } ->
+      pr "\n";
+      pr "pub struct %s {\n" name;
+      List.iter (
+        function
+        | n, FChar -> pr "    %s: i8,\n" n
+        | n, FString -> pr "    %s: String,\n" n
+        | n, FBuffer -> pr "    %s: Vec<u8>,\n" n
+        | n, FUInt32 -> pr "    %s: u32,\n" n
+        | n, FInt32 -> pr "    %s: i32,\n" n
+        | n, (FUInt64 | FBytes) -> pr "    %s: u64,\n" n
+        | n, FInt64 -> pr "    %s: i64,\n" n
+        | n, FUUID -> pr "    %s: UUID,\n" n
+        | n, FOptPercent -> pr "    %s: Option<f32>,\n" n
+      ) cols;
+      pr "}\n";
+      pr "#[repr(C)]\n";
+      pr "struct Raw%s {\n" name;
+      List.iter (
+        function
+        | n, FChar -> pr "    %s: c_char,\n" n
+        | n, FString -> pr "    %s: *const c_char,\n" n
+        | n, FBuffer ->
+          pr "    %s_len: usize,\n" n;
+          pr "    %s: *const c_char,\n" n;
+        | n, FUUID -> pr "    %s: [u8; 32],\n" n
+        | n, FUInt32 -> pr "    %s: u32,\n" n
+        | n, FInt32 -> pr "    %s: i32,\n" n
+        | n, (FUInt64 | FBytes) -> pr "    %s: u64,\n" n
+        | n, FInt64 -> pr "    %s: i64,\n" n
+        | n, FOptPercent -> pr "    %s: f32,\n" n
+      ) cols;
+      pr "}\n";
+      pr "\n";
+      pr "impl %s {\n" name;
+      pr "    fn new(raw: *const Raw%s) -> %s {\n" name name;
+      pr "        unsafe { %s {\n" name;
+      List.iter (
+        fun x ->
+          indent 3;
+          match x with
+          | n, FChar ->
+            pr "%s: (*raw).%s as i8,\n" n n;
+          | n, FString ->
+            pr "%s: {\n" n;
+            indent 4;
+            pr "let s = ffi::CStr::from_ptr((*raw).%s);\n" n;
+            indent 4;
+            pr "s.to_str().unwrap().to_string()\n";
+            indent 3;
+            pr "},\n"
+          | n, FBuffer ->
+            pr "%s: slice::from_raw_parts((*raw).%s as *const u8, (*raw).%s_len).to_vec(),\n" n n n
+          | n, FUUID ->
+            pr "%s: UUID::new((*raw).%s),\n" n n
+          | n, (FUInt32 | FInt32 | FUInt64 | FInt64 | FBytes) ->
+            pr "%s: (*raw).%s,\n" n n
+          | n, FOptPercent ->
+            pr "%s: if (*raw).%s < 0.0 { None } else { Some((*raw).%s) },\n" n n n
+      ) cols;
+      pr "        } }\n";
+      pr "    }\n";
+      pr "}\n"
+  ) external_structs;
