@@ -59,6 +59,7 @@ let generate_rust () =
   generate_header CStyle LGPLv2plus;
 
   pr "
+use std::collections;
 use std::ffi;
 use std::slice;
 use std::os::raw::c_char;
@@ -151,6 +152,10 @@ impl Handle {
     }
 }\
 
+pub struct Error {
+    // TODO
+}
+
 pub struct UUID {
     uuid: [u8; 32]
 }
@@ -226,6 +231,8 @@ impl UUID {
       pr "    }\n";
       pr "}\n"
   ) external_structs;
+
+  (* generate structs for optional arguments *)
   List.iter (
     fun ({ name = name; shortdesc = shortdesc;
           style = (ret, args, optargs) }) ->
@@ -275,3 +282,60 @@ impl UUID {
         pr "}\n\n";
       );
   ) (actions |> external_functions |> sort);
+
+  pr "impl Handle {\n";
+  List.iter (
+    fun ({ name = name; shortdesc = shortdesc;
+          style = (ret, args, optargs) }) ->
+      let cname = snake2caml name in
+      pr "/// %s \n" shortdesc;
+      pr "    pub fn %s" name;
+
+      (* generate arguments *)
+      pr "(";
+      let comma = ref false in
+      List.iter (
+        fun arg ->
+          if !comma then pr ", ";
+          comma := true;
+          match arg with
+          | Bool n -> pr "%s: bool" n
+          | Int n -> pr "%s: i32" n
+          | Int64 n -> pr "%s: i64" n
+          | String (_, n) -> pr "%s: String" n
+          | OptString n -> pr "%s: Option<String>" n
+          | StringList (_, n) -> pr "%s: Vec<String>" n
+          | BufferIn n -> pr "%s: Vec<u8>" n
+          | Pointer (_, n) -> pr "%s: usize" n
+      ) args;
+      if optargs <> [] then (
+        if !comma then pr ", ";
+        comma := true;
+        pr "optargs: OptArgs%s" cname
+      );
+      pr ")";
+
+      (* generate return type *)
+      pr "-> Result<";
+      (match ret with
+      | RErr -> pr "()"
+      | RInt _ -> pr "i32"
+      | RInt64 _ -> pr "i64"
+      | RBool _ -> pr "bool"
+      | RConstString _
+      | RString _ -> pr "String"
+      | RConstOptString _ -> pr "Option<String>"
+      | RStringList _ -> pr "Vec<String>"
+      | RStruct (_, sn) ->
+        let sn = camel_name_of_struct sn in
+        pr "%s" sn
+      | RStructList (_, sn) ->
+        let sn = camel_name_of_struct sn in
+        pr "Vec<%s>" sn
+      | RHashtable _ -> pr "collections::HashMap<String, String>"
+      | RBufferOut _ -> pr "Vec<u8>");
+      pr ", Error> {\n";
+      pr "         unimplemented!()\n";
+      pr "    }"
+  ) (actions |> external_functions |> sort);
+  pr "}\n"
