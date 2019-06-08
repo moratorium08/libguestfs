@@ -59,8 +59,10 @@ let generate_rust () =
   generate_header CStyle LGPLv2plus;
 
   pr "
+use std::collections;
 use std::ffi;
 use std::slice;
+use std::ptr;
 use std::os::raw::c_char;
 
 
@@ -130,6 +132,18 @@ impl CreateFlags {
     }
 }
 
+fn arg_string_list (v: &Vec<String>) -> Vec<*const i8> {
+    let length = v.len();
+    let mut w = Vec::new();
+    for x in v.iter() {
+        let y: &str = x;
+        let s = ffi::CString::new(y).unwrap();
+        w.push(s.as_ptr());
+    }
+    w.push(ptr::null());
+    w
+}
+
 impl Handle {
     pub fn create() -> Result<Handle, &'static str> {
         let g = unsafe { guestfs_create() };
@@ -149,6 +163,10 @@ impl Handle {
         }
     }
 }\
+
+pub struct Error {
+    // TODO
+}
 
 pub struct UUID {
     uuid: [u8; 32]
@@ -225,6 +243,8 @@ impl UUID {
       pr "    }\n";
       pr "}\n"
   ) external_structs;
+
+  (* generate structs for optional arguments *)
   List.iter (
     fun ({ name = name; shortdesc = shortdesc;
           style = (ret, args, optargs) }) ->
@@ -274,3 +294,120 @@ impl UUID {
         pr "}\n\n";
       );
   ) (actions |> external_functions |> sort);
+
+  pr "impl Handle {\n";
+  List.iter (
+    fun ({ name = name; shortdesc = shortdesc;
+          style = (ret, args, optargs) } as f) ->
+      let cname = snake2caml name in
+      pr "    /// %s \n" shortdesc;
+      pr "    pub fn %s" name;
+
+      (* generate arguments *)
+      pr "(&self, ";
+      let comma = ref false in
+      List.iter (
+        fun arg ->
+          if !comma then pr ", ";
+          comma := true;
+          match arg with
+          | Bool n -> pr "%s: bool" n
+          | Int n -> pr "%s: i32" n
+          | Int64 n -> pr "%s: i64" n
+          | String (_, n) -> pr "%s: String" n
+          | OptString n -> pr "%s: Option<String>" n
+          | StringList (_, n) -> pr "%s: Vec<String>" n
+          | BufferIn n -> pr "%s: Vec<u8>" n
+          | Pointer (_, n) -> pr "%s: usize" n
+      ) args;
+      if optargs <> [] then (
+        if !comma then pr ", ";
+        comma := true;
+        pr "optargs: OptArgs%s" cname
+      );
+      pr ")";
+
+      (* generate return type *)
+      pr " -> Result<";
+      (match ret with
+      | RErr -> pr "()"
+      | RInt _ -> pr "i32"
+      | RInt64 _ -> pr "i64"
+      | RBool _ -> pr "bool"
+      | RConstString _
+      | RString _ -> pr "String"
+      | RConstOptString _ -> pr "Option<String>"
+      | RStringList _ -> pr "Vec<String>"
+      | RStruct (_, sn) ->
+        let sn = camel_name_of_struct sn in
+        pr "%s" sn
+      | RStructList (_, sn) ->
+        let sn = camel_name_of_struct sn in
+        pr "Vec<%s>" sn
+      | RHashtable _ -> pr "collections::HashMap<String, String>"
+      | RBufferOut _ -> pr "Vec<u8>");
+      pr ", Error> {\n";
+
+      let _pr = pr in
+      let pr fs = indent 2; pr fs in
+      List.iter (
+        function
+        | Bool n ->
+          pr "let c_%s = if %s { 1 } else { 0 };\n" n n
+        | String (_, n) ->
+          (* TODO: handle errors *)
+          pr "let c_%s = \n" n;
+          pr "    ffi::CString::new(%s).expect(\"CString::new failed\").as_ptr();\n" n;
+        | OptString n ->
+          pr "let c_%s = match %s {" n n;
+          pr "    Some(s) => \n";
+          pr "        ffi::CString::new(s)\n";
+          pr "            .expect(\"CString::new failed\")\n";
+          pr "            .as_ptr(),\n";
+          pr "    None => ptr::null(),\n";
+          pr "};\n";
+        | StringList (_, n) ->
+          pr "let c_%s_v = arg_string_list(%s);\n" n n;
+        | BufferIn n ->
+          pr "let c_%s = ffi::CString::new(%s)\n" n n;
+          pr "            .expect(\"CString::new failed\")\n";
+          pr "            .as_ptr();\n";
+          pr "let c_%s_len = %s.len();\n" n n;
+        | Int _ | Int64 _ | Pointer _ -> ()
+      ) args;
+
+      (* TODO: handle optargs *)
+      if optargs <> [] then (
+      );
+
+      (match ret with
+       | RBufferOut _ ->
+         pr "let mut size = 0;\n"
+       | _ -> ()
+      );
+
+      pr "\n";
+
+      pr "let r = unsafe { %s(self.g" f.c_function;
+      List.iter (
+        fun arg ->
+          pr ", ";
+          match arg with
+          | Bool n | String (_, n) | OptString n -> pr "c_%s" n
+          | Int n | Int64 n -> pr "%s" n
+          | Pointer _ -> pr "ptr::null()" (* XXX: what is pointer? *)
+          | StringList (_, n) -> pr "&c_%s as *const *const c_char" n
+          | BufferIn n -> pr "c_%s, c_%s_len" n n
+      ) args;
+      (match ret with
+       | RBufferOut _ -> pr ", &size as *const usize"
+       | _ -> ()
+      );
+      pr ") };\n";
+
+      pr "unimplemented!()\n";
+      let pr = _pr in
+
+      pr "    }\n\n"
+  ) (actions |> external_functions |> sort);
+  pr "}\n"
