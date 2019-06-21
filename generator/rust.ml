@@ -64,7 +64,7 @@ use std::convert;
 use std::ffi;
 use std::slice;
 use std::ptr;
-use std::os::raw::{c_char, c_int};
+use std::os::raw::{c_char, c_int, c_void};
 
 
 #[allow(non_camel_case_types)]
@@ -78,6 +78,11 @@ extern \"C\" {
     fn guestfs_last_error(g: *mut guestfs_h) -> *const c_char;
     fn guestfs_last_errno(g: *mut guestfs_h) -> c_int;
 }
+
+extern \"C\" {
+    fn free(buf: *const c_void);
+}
+
 
 const GUESTFS_CREATE_NO_ENVIRONMENT: i64 = 1;
 const GUESTFS_CREATE_NO_CLOSE_ON_EXIT: i64 = 2;
@@ -158,7 +163,38 @@ impl<T: Copy + Clone> Iterator for NullTerminatedIter<T> {
     }
 }
 
-fn arg_string_list (v: &Vec<String>) -> Vec<*const i8> {
+#[repr(C)]
+struct RawList<T> {
+    size: u32,
+    ptr: *const T,
+}
+
+struct RawListIter<'a, T> {
+    current: u32,
+    list: &'a RawList<T>
+}
+
+impl<T> RawList<T>  {
+    fn iter<'a>(&'a self) -> RawListIter<'a, T> {
+        RawListIter{ current: 0, list: self }
+    }
+}
+
+impl<'a, T> Iterator for RawListIter<'a, T> {
+    type Item = *const T;
+    fn next(&mut self) -> Option<*const T> {
+        if self.current >= self.list.size {
+            None
+        } else {
+            let elem = unsafe { self.list.ptr.offset(self.current as isize) };
+            self.current += 1;
+            Some(elem)
+        }
+    }
+}
+
+
+fn arg_string_list (v: &Vec<&str>) -> Vec<*const i8> {
     let length = v.len();
     let mut w = Vec::new();
     for x in v.iter() {
@@ -185,9 +221,9 @@ fn hashmap (l: *const *const c_char) -> collections::HashMap<String, String> {
     map
 }
 
-fn struct_list<T, S: convert::From<*const T>>(l: *const *const T) -> Vec<S> {
+fn struct_list<T, S: convert::From<*const T>>(l: *const RawList<T>) -> Vec<S> {
     let mut v = Vec::new();
-    for x in NullTerminatedIter::new(l) {
+    for x in unsafe {&*l}.iter() {
         v.push(S::from(x));
     }
     v
@@ -200,6 +236,10 @@ fn string_list (l: *const *const c_char) -> Vec<String> {
         v.push(s.to_string());
     }
     v
+}
+
+fn free_string_list(l: *const *const c_char) {
+    // TODO
 }
 
 #[derive(Debug)]
@@ -248,6 +288,7 @@ impl UUID {
         self.uuid
     }
 }
+
 ";
   List.iter (
     fun { s_camel_name = name; s_name = c_name; s_cols = cols } ->
@@ -315,15 +356,32 @@ impl UUID {
       pr "}\n"
   ) external_structs;
 
+  (* generate free functionf of structs *)
+  pr "\n";
+  pr "extern \"C\" {\n";
+  List.iter (
+    fun {  s_camel_name = name; s_name = c_name; } ->
+      pr "fn guestfs_free_%s(v: *const Raw%s);\n" c_name name;
+      pr "fn guestfs_free_%s_list(l: *const RawList<Raw%s>);\n" c_name name;
+  ) external_structs;
+  pr "}\n";
+
   List.iter (
     fun ({ name = name; shortdesc = shortdesc;
           style = (ret, args, optargs) }) ->
       let cname = snake2caml name in
+      let rec contains_ptr args = match args with
+        | [] -> false
+        | OString _ ::_
+        | OStringList _::_ -> true
+        | _::xs -> contains_ptr xs
+      in
+      let opt_life_parameter = if contains_ptr optargs then "<'a>" else "" in
       if optargs <> [] then (
         pr "\n";
         pr "/* Optional Structs */\n";
         pr "#[derive(Default)]\n";
-        pr "pub struct OptArgs%s {\n" cname;
+        pr "pub struct OptArgs%s%s {\n" cname opt_life_parameter;
         List.iter (
           fun optarg ->
             let n = translate_bad_symbols (name_of_optargt optarg) in
@@ -335,9 +393,9 @@ impl UUID {
             | OInt64 _ ->
               pr "    _%s: Option<i64>,\n" n
             | OString _ ->
-              pr "    _%s: Option<String>,\n" n
+              pr "    _%s: Option<&'a str>,\n" n
             | OStringList _ ->
-              pr "    _%s: Option<Vec<String>>,\n" n
+              pr "    _%s: Option<Vec<&'a str>>,\n" n
         ) optargs;
         pr "}\n\n";
 
@@ -362,8 +420,9 @@ impl UUID {
         ) optargs;
         pr "}\n\n";
 
-        pr "impl convert::From<OptArgs%s> for RawOptArgs%s {\n" cname cname;
-        pr "    fn from(optargs: OptArgs%s) -> Self {\n" cname;
+        pr "impl%s convert::From<OptArgs%s%s> for RawOptArgs%s {\n"
+          opt_life_parameter cname opt_life_parameter cname;
+        pr "    fn from(optargs: OptArgs%s%s) -> Self {\n" cname opt_life_parameter;
         pr "        let mut bitmask = 0;\n";
         pr "         RawOptArgs%s {\n" cname;
         List.iteri (
@@ -405,7 +464,7 @@ impl UUID {
         pr "    }\n";
         pr "}\n";
 
-        pr "impl OptArgs%s {\n" cname;
+        pr "impl%s OptArgs%s%s {\n" opt_life_parameter cname opt_life_parameter;
         List.iter (
           fun optarg ->
             let n = translate_bad_symbols (name_of_optargt optarg) in
@@ -418,11 +477,11 @@ impl UUID {
             | OInt64 _ ->
               pr "i64"
             | OString _ ->
-              pr "String"
+              pr "&'a str"
             | OStringList _ ->
-              pr "Vec<String>"
+              pr "Vec<&'a str>"
             );
-            pr ") -> OptArgs%s {\n" cname;
+            pr ") -> OptArgs%s%s {\n" cname opt_life_parameter;
             pr "        OptArgs%s { _%s: Some(%s), ..self }\n" cname n n;
             pr "    }\n"
         ) optargs;
@@ -470,7 +529,7 @@ impl UUID {
         pr "*const Raw%s" n
       | RStructList (_, n) ->
         let n = camel_name_of_struct n in
-        pr "*const *const Raw%s" n
+        pr "*const RawList<Raw%s>" n
       );
       pr ";\n";
 
@@ -497,9 +556,9 @@ impl UUID {
           | Bool n -> pr "%s: bool" n
           | Int n -> pr "%s: i32" n
           | Int64 n -> pr "%s: i64" n
-          | String (_, n) -> pr "%s: String" n
-          | OptString n -> pr "%s: Option<String>" n
-          | StringList (_, n) -> pr "%s: Vec<String>" n
+          | String (_, n) -> pr "%s: &str" n
+          | OptString n -> pr "%s: Option<&str>" n
+          | StringList (_, n) -> pr "%s: Vec<&str>" n
           | BufferIn n -> pr "%s: Vec<u8>" n
           | Pointer (_, n) -> pr "%s: usize" n
       ) args;
@@ -615,32 +674,50 @@ impl UUID {
        | RConstString _ ->
          pr "unsafe{ ffi::CStr::from_ptr(r) }.to_str().unwrap()\n"
        | RString _ ->
-         (* TODO: free r *)
-         pr "unsafe { ffi::CStr::from_ptr(r) }.to_str().unwrap().to_string()"
+         pr "{";
+         pr "    let s = unsafe {ffi::CStr::from_ptr(r)}\n";
+         pr "       .to_str().unwrap().to_string();\n";
+         pr "    unsafe { free(r as * const c_void) };\n";
+         pr "    s\n";
+         pr "}\n";
        | RConstOptString _ ->
-         (* TODO: free ? not? *)
          indent 3; pr "if r.is_null() {\n";
          indent 3; pr "    None\n";
          indent 3; pr "} else {\n";
          indent 3; pr "    Some(unsafe { ffi::CStr::from_ptr(r) }.to_str().unwrap())\n";
          indent 3; pr "}";
        | RStringList _ ->
-         (* TODO: free r *)
-         pr "string_list(r)"
+         pr "{\n";
+         pr "    let s = string_list(r);\n";
+         pr "    free_string_list(r);\n";
+         pr "    s\n";
+         pr "}\n";
        | RStruct (_, n) ->
-         (* TODO: free r *)
-         let n = camel_name_of_struct n in
-         pr "%s::from(r)" n
+         let sn = camel_name_of_struct n in
+         pr "{\n";
+         pr "    let s = %s::from(r);\n" sn;
+         pr "    unsafe { guestfs_free_%s(r) };\n" n;
+         pr "    s\n";
+         pr "}\n";
        | RStructList (_, n) ->
-         (* TODO: free r *)
-         let n = camel_name_of_struct n in
-         pr "struct_list::<Raw%s, %s>(r)" n n
+         let sn = camel_name_of_struct n in
+         pr "{\n";
+         pr "    let l = struct_list::<Raw%s, %s>(r);\n" sn sn;
+         pr "    unsafe { guestfs_free_%s_list(r) };" n;
+         pr "    l\n";
+         pr "}\n";
        | RHashtable _ ->
-         (* TODO: free r *)
-         pr "hashmap(r)"
+         pr "{\n";
+         pr "    let h = hashmap(r);\n";
+         pr "    free_string_list(r);\n";
+         pr "    h\n";
+         pr "}\n";
        | RBufferOut _ ->
-         (* TODO: free r *)
-         pr "unsafe { slice::from_raw_parts(r, size) }.to_vec()"
+         pr "{\n";
+         pr "    let s = unsafe { slice::from_raw_parts(r, size) }.to_vec();\n";
+         pr "    unsafe { free(r as * const c_void) } ;\n";
+         pr "    s\n";
+         pr "}\n";
       );
       pr ")\n";
       pr "    }\n\n"
