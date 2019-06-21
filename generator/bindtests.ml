@@ -14,7 +14,7 @@
  * You should have received a copy of the GNU General Public License
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
-*)
+ *)
 
 (* Please read generator/README first. *)
 
@@ -161,11 +161,11 @@ fill_lvm_pv (guestfs_h *g, struct guestfs_lvm_pv *pv, size_t i)
           pr "    fprintf (fp, \"\\n\");\n";
           pr "  }\n";
         | OptString n ->
-          pr "  fprintf (fp, \"%%s\\n\", %s ? %s : \"null\");\n" n n
+           pr "  fprintf (fp, \"%%s\\n\", %s ? %s : \"null\");\n" n n
         | StringList (_, n) ->
           pr "  print_strings (g, %s);\n" n
         | Bool n ->
-          pr "  fprintf (fp, \"%%s\\n\", %s ? \"true\" : \"false\");\n" n
+           pr "  fprintf (fp, \"%%s\\n\", %s ? \"true\" : \"false\");\n" n
         | Int n -> pr "  fprintf (fp, \"%%d\\n\", %s);\n" n
         | Int64 n -> pr "  fprintf (fp, \"%%\" PRIi64 \"\\n\", %s);\n" n
         | Pointer _ -> assert false
@@ -220,83 +220,83 @@ fill_lvm_pv (guestfs_h *g, struct guestfs_lvm_pv *pv, size_t i)
         pr "{\n";
         (match ret with
          | RErr ->
-           pr "  return 0;\n"
+             pr "  return 0;\n"
          | RInt _ ->
-           pr "  int r;\n";
-           pr "  if (sscanf (val, \"%%d\", &r) != 1) {\n";
-           pr "    error (g, \"%%s: expecting int argument\", \"%s\");\n" name;
-           pr "    return -1;\n";
-           pr "  }\n";
-           pr "  return r;\n"
+             pr "  int r;\n";
+             pr "  if (sscanf (val, \"%%d\", &r) != 1) {\n";
+             pr "    error (g, \"%%s: expecting int argument\", \"%s\");\n" name;
+             pr "    return -1;\n";
+             pr "  }\n";
+             pr "  return r;\n"
          | RInt64 _ ->
-           pr "  int64_t r;\n";
-           pr "  if (sscanf (val, \"%%\" SCNi64, &r) != 1) {\n";
-           pr "    error (g, \"%%s: expecting int64 argument\", \"%s\");\n" name;
-           pr "    return -1;\n";
-           pr "  }\n";
-           pr "  return r;\n"
+             pr "  int64_t r;\n";
+             pr "  if (sscanf (val, \"%%\" SCNi64, &r) != 1) {\n";
+             pr "    error (g, \"%%s: expecting int64 argument\", \"%s\");\n" name;
+             pr "    return -1;\n";
+             pr "  }\n";
+             pr "  return r;\n"
          | RBool _ ->
-           pr "  return STREQ (val, \"true\");\n"
+             pr "  return STREQ (val, \"true\");\n"
          | RConstString _
          | RConstOptString _ ->
-           (* Can't return the input string here.  Return a static
-            * string so we ensure we get a segfault if the caller
-            * tries to free it.
-           *)
-           pr "  return \"static string\";\n"
+             (* Can't return the input string here.  Return a static
+              * string so we ensure we get a segfault if the caller
+              * tries to free it.
+              *)
+             pr "  return \"static string\";\n"
          | RString _ ->
-           pr "  return strdup (val);\n"
+             pr "  return strdup (val);\n"
          | RStringList _ ->
-           pr "  char **strs;\n";
-           pr "  size_t n, i;\n";
-           pr "  if (sscanf (val, \"%%zu\", &n) != 1) {\n";
-           pr "    error (g, \"%%s: expecting int argument\", \"%s\");\n" name;
-           pr "    return NULL;\n";
-           pr "  }\n";
-           pr "  strs = safe_malloc (g, (n+1) * sizeof (char *));\n";
-           pr "  for (i = 0; i < n; ++i) {\n";
-           pr "    strs[i] = safe_malloc (g, INT_BUFSIZE_BOUND (i));\n";
-           pr "    snprintf (strs[i], INT_BUFSIZE_BOUND (i), \"%%zu\", i);\n";
-           pr "  }\n";
-           pr "  strs[n] = NULL;\n";
-           pr "  return strs;\n"
+             pr "  char **strs;\n";
+             pr "  size_t n, i;\n";
+             pr "  if (sscanf (val, \"%%zu\", &n) != 1) {\n";
+             pr "    error (g, \"%%s: expecting int argument\", \"%s\");\n" name;
+             pr "    return NULL;\n";
+             pr "  }\n";
+             pr "  strs = safe_malloc (g, (n+1) * sizeof (char *));\n";
+             pr "  for (i = 0; i < n; ++i) {\n";
+             pr "    strs[i] = safe_malloc (g, INT_BUFSIZE_BOUND (i));\n";
+             pr "    snprintf (strs[i], INT_BUFSIZE_BOUND (i), \"%%zu\", i);\n";
+             pr "  }\n";
+             pr "  strs[n] = NULL;\n";
+             pr "  return strs;\n"
          | RStruct (_, typ) ->
-           pr "  struct guestfs_%s *r;\n" typ;
-           pr "  r = safe_malloc (g, sizeof *r);\n";
-           pr "  fill_lvm_pv (g, r, 0);\n";
-           pr "  return r;\n"
+             pr "  struct guestfs_%s *r;\n" typ;
+             pr "  r = safe_malloc (g, sizeof *r);\n";
+             pr "  fill_lvm_pv (g, r, 0);\n";
+             pr "  return r;\n"
          | RStructList (_, typ) ->
-           pr "  struct guestfs_%s_list *r;\n" typ;
-           pr "  uint32_t len;\n";
-           pr "  if (sscanf (val, \"%%\" SCNu32, &len) != 1) {\n";
-           pr "    error (g, \"%%s: expecting uint32 argument\", \"%s\");\n" name;
-           pr "    return NULL;\n";
-           pr "  }\n";
-           pr "  r = safe_malloc (g, sizeof *r);\n";
-           pr "  r->len = len;\n";
-           pr "  r->val = safe_malloc (g, r->len * sizeof (*r->val));\n";
-           pr "  for (size_t i = 0; i < r->len; i++)\n";
-           pr "    fill_lvm_pv (g, &r->val[i], i);\n";
-           pr "  return r;\n"
+             pr "  struct guestfs_%s_list *r;\n" typ;
+             pr "  uint32_t len;\n";
+             pr "  if (sscanf (val, \"%%\" SCNu32, &len) != 1) {\n";
+             pr "    error (g, \"%%s: expecting uint32 argument\", \"%s\");\n" name;
+             pr "    return NULL;\n";
+             pr "  }\n";
+             pr "  r = safe_malloc (g, sizeof *r);\n";
+             pr "  r->len = len;\n";
+             pr "  r->val = safe_malloc (g, r->len * sizeof (*r->val));\n";
+             pr "  for (size_t i = 0; i < r->len; i++)\n";
+             pr "    fill_lvm_pv (g, &r->val[i], i);\n";
+             pr "  return r;\n"
          | RHashtable _ ->
-           pr "  char **strs;\n";
-           pr "  size_t n, i;\n";
-           pr "  if (sscanf (val, \"%%zu\", &n) != 1) {\n";
-           pr "    error (g, \"%%s: expecting int argument\", \"%s\");\n" name;
-           pr "    return NULL;\n";
-           pr "  }\n";
-           pr "  strs = safe_malloc (g, (n*2+1) * sizeof (*strs));\n";
-           pr "  for (i = 0; i < n; ++i) {\n";
-           pr "    strs[i*2] = safe_malloc (g, INT_BUFSIZE_BOUND (i));\n";
-           pr "    strs[i*2+1] = safe_malloc (g, INT_BUFSIZE_BOUND (i));\n";
-           pr "    snprintf (strs[i*2], INT_BUFSIZE_BOUND (i), \"%%zu\", i);\n";
-           pr "    snprintf (strs[i*2+1], INT_BUFSIZE_BOUND (i), \"%%zu\", i);\n";
-           pr "  }\n";
-           pr "  strs[n*2] = NULL;\n";
-           pr "  return strs;\n"
+             pr "  char **strs;\n";
+             pr "  size_t n, i;\n";
+             pr "  if (sscanf (val, \"%%zu\", &n) != 1) {\n";
+             pr "    error (g, \"%%s: expecting int argument\", \"%s\");\n" name;
+             pr "    return NULL;\n";
+             pr "  }\n";
+             pr "  strs = safe_malloc (g, (n*2+1) * sizeof (*strs));\n";
+             pr "  for (i = 0; i < n; ++i) {\n";
+             pr "    strs[i*2] = safe_malloc (g, INT_BUFSIZE_BOUND (i));\n";
+             pr "    strs[i*2+1] = safe_malloc (g, INT_BUFSIZE_BOUND (i));\n";
+             pr "    snprintf (strs[i*2], INT_BUFSIZE_BOUND (i), \"%%zu\", i);\n";
+             pr "    snprintf (strs[i*2+1], INT_BUFSIZE_BOUND (i), \"%%zu\", i);\n";
+             pr "  }\n";
+             pr "  strs[n*2] = NULL;\n";
+             pr "  return strs;\n"
          | RBufferOut _ ->
-           pr "  *size_r = strlen (val);\n";
-           pr "  return strdup (val);\n"
+             pr "  *size_r = strlen (val);\n";
+             pr "  return strdup (val);\n"
         );
         pr "}\n";
         pr "\n"
@@ -308,13 +308,13 @@ fill_lvm_pv (guestfs_h *g, struct guestfs_lvm_pv *pv, size_t i)
         pr "  error (g, \"error\");\n";
         (match ret with
          | RErr | RInt _ | RInt64 _ | RBool _ ->
-           pr "  return -1;\n"
+             pr "  return -1;\n"
          | RConstString _ | RConstOptString _
          | RString _ | RStringList _ | RStruct _
          | RStructList _
          | RHashtable _
          | RBufferOut _ ->
-           pr "  return NULL;\n"
+             pr "  return NULL;\n"
         );
         pr "}\n";
         pr "\n"
@@ -342,7 +342,7 @@ let () =
         | CallOptString None -> "None"
         | CallOptString (Some s) -> sprintf "(Some \"%s\")" s
         | CallStringList xs ->
-          "[|" ^ String.concat ";" (List.map (sprintf "\"%s\"") xs) ^ "|]"
+            "[|" ^ String.concat ";" (List.map (sprintf "\"%s\"") xs) ^ "|]"
         | CallInt i when i >= 0 -> string_of_int i
         | CallInt i (* when i < 0 *) -> "(" ^ string_of_int i ^ ")"
         | CallInt64 i when i >= 0L -> Int64.to_string i ^ "L"
@@ -359,7 +359,7 @@ let () =
         | CallOString (n, v)  -> "~" ^ n ^ ":\"" ^ v ^ "\""
         | CallOStringList (n, xs) ->
           "~" ^ n ^ ":" ^
-          "[|" ^ String.concat ";" (List.map (sprintf "\"%s\"") xs) ^ "|]"
+            "[|" ^ String.concat ";" (List.map (sprintf "\"%s\"") xs) ^ "|]"
       ) optargs
     )
   in
@@ -396,7 +396,7 @@ my $g = Sys::Guestfs->new ();
         | CallOptString None -> "undef"
         | CallOptString (Some s) -> sprintf "\"%s\"" s
         | CallStringList xs ->
-          "[" ^ String.concat "," (List.map (sprintf "\"%s\"") xs) ^ "]"
+            "[" ^ String.concat "," (List.map (sprintf "\"%s\"") xs) ^ "]"
         | CallInt i -> string_of_int i
         | CallInt64 i -> "\"" ^ Int64.to_string i ^ "\""
         | CallBool b -> if b then "1" else "0"
@@ -411,7 +411,7 @@ my $g = Sys::Guestfs->new ();
         | CallOString (n, v)  -> "'" ^ n ^ "' => '" ^ v ^ "'"
         | CallOStringList (n, xs) ->
           "'" ^ n ^ "' => " ^
-          "[" ^ String.concat "," (List.map (sprintf "\"%s\"") xs) ^ "]"
+            "[" ^ String.concat "," (List.map (sprintf "\"%s\"") xs) ^ "]"
       ) optargs
     )
   in
@@ -444,7 +444,7 @@ g = guestfs.GuestFS()
         | CallOptString None -> "None"
         | CallOptString (Some s) -> sprintf "\"%s\"" s
         | CallStringList xs ->
-          "[" ^ String.concat ", " (List.map (sprintf "\"%s\"") xs) ^ "]"
+            "[" ^ String.concat ", " (List.map (sprintf "\"%s\"") xs) ^ "]"
         | CallInt i -> string_of_int i
         | CallInt64 i -> Int64.to_string i
         | CallBool b -> if b then "1" else "0"
@@ -459,7 +459,7 @@ g = guestfs.GuestFS()
         | CallOString (n, v)  -> n ^ "=\"" ^ v ^ "\""
         | CallOStringList (n, xs) ->
           n ^ "=" ^
-          "[" ^ String.concat ", " (List.map (sprintf "\"%s\"") xs) ^ "]"
+            "[" ^ String.concat ", " (List.map (sprintf "\"%s\"") xs) ^ "]"
       ) optargs
     )
   in
@@ -494,7 +494,7 @@ g = Guestfs::Guestfs.new()
         | CallOptString None -> "nil"
         | CallOptString (Some s) -> sprintf "\"%s\"" s
         | CallStringList xs ->
-          "[" ^ String.concat "," (List.map (sprintf "\"%s\"") xs) ^ "]"
+            "[" ^ String.concat "," (List.map (sprintf "\"%s\"") xs) ^ "]"
         | CallInt i -> string_of_int i
         | CallInt64 i -> Int64.to_string i
         | CallBool b -> string_of_bool b
@@ -511,7 +511,7 @@ g = Guestfs::Guestfs.new()
         | CallOString (n, v)  -> ":" ^ n ^ " => \"" ^ v ^ "\""
         | CallOStringList (n, xs) ->
           ":" ^ n ^ " => " ^
-          "[" ^ String.concat "," (List.map (sprintf "\"%s\"") xs) ^ "]"
+            "[" ^ String.concat "," (List.map (sprintf "\"%s\"") xs) ^ "]"
       ) optargs
     ) ^
     "}"
@@ -557,9 +557,9 @@ public class Bindtests {
           "  put(\"" ^ n ^ "\", \"" ^ v ^ "\");"
         | CallOStringList (n, xs)  ->
           "  put(\"" ^ n ^ "\", " ^
-          "new String[]{" ^
-          String.concat "," (List.map (sprintf "\"%s\"") xs) ^
-          "});"
+            "new String[]{" ^
+            String.concat "," (List.map (sprintf "\"%s\"") xs) ^
+            "});"
       ) optargs @
       [ "}};\n" ]
     | None ->
@@ -574,15 +574,15 @@ public class Bindtests {
         | CallOptString None -> "null"
         | CallOptString (Some s) -> sprintf "\"%s\"" s
         | CallStringList xs ->
-          "new String[]{" ^
-          String.concat "," (List.map (sprintf "\"%s\"") xs) ^ "}"
+            "new String[]{" ^
+              String.concat "," (List.map (sprintf "\"%s\"") xs) ^ "}"
         | CallInt i -> string_of_int i
         | CallInt64 i -> Int64.to_string i ^ "L"
         | CallBool b -> string_of_bool b
         | CallBuffer s ->
-          "new byte[] { " ^ String.concat "," (
-            String.map_chars (fun c -> string_of_int (Char.code c)) s
-          ) ^ " }"
+            "new byte[] { " ^ String.concat "," (
+              String.map_chars (fun c -> string_of_int (Char.code c)) s
+            ) ^ " }"
       ) args
     )
   in
@@ -627,7 +627,7 @@ main = do
         | CallOptString None -> "Nothing"
         | CallOptString (Some s) -> sprintf "(Just \"%s\")" s
         | CallStringList xs ->
-          "[" ^ String.concat "," (List.map (sprintf "\"%s\"") xs) ^ "]"
+            "[" ^ String.concat "," (List.map (sprintf "\"%s\"") xs) ^ "]"
         | CallInt i when i < 0 -> "(" ^ string_of_int i ^ ")"
         | CallInt i -> string_of_int i
         | CallInt64 i when i < 0L -> "(" ^ Int64.to_string i ^ ")"
@@ -656,7 +656,7 @@ var o;
 
 ";
 
-  let mkoptargs = function
+    let mkoptargs = function
     | Some optargs ->
       "o = new Guestfs.InternalTest({" ^
       (
@@ -679,32 +679,32 @@ var o;
       "});"
     | None ->
       "o = null;"
-  in
+    in
 
-  let mkargs args =
-    String.concat ", " (
-      (List.map (
+    let mkargs args =
+      String.concat ", " (
+        (List.map (
           function
           | CallString s -> "\"" ^ s ^ "\""
           | CallOptString None -> "null"
           | CallOptString (Some s) -> "\"" ^ s ^ "\""
           | CallStringList xs ->
-            "[" ^ String.concat "," (List.map (sprintf "\"%s\"") xs) ^ "]"
+              "[" ^ String.concat "," (List.map (sprintf "\"%s\"") xs) ^ "]"
           | CallInt i -> string_of_int i
           | CallInt64 i -> Int64.to_string i
           | CallBool true -> "true"
           | CallBool false -> "false"
           | CallBuffer s -> "\"" ^ c_quote s ^ "\""
         ) args)
-      @ ["o"; "null"]
-    )
-  in
-  generate_lang_bindtests (
-    fun f args optargs ->
-      pr "%s\ng.%s(%s);\n" (mkoptargs optargs) f (mkargs args)
-  );
+        @ ["o"; "null"]
+      )
+    in
+    generate_lang_bindtests (
+      fun f args optargs ->
+        pr "%s\ng.%s(%s);\n" (mkoptargs optargs) f (mkargs args)
+    );
 
-  pr "\nprint(\"EOF\");\n"
+    pr "\nprint(\"EOF\");\n"
 
 and generate_erlang_bindtests () =
   pr "#!/usr/bin/env escript\n";
@@ -726,35 +726,35 @@ and generate_erlang_bindtests () =
     fun f args optargs ->
       pr "    ok = guestfs:%s(G" f;
       List.iter (function
-          | CallString s -> pr ", \"%s\"" s
-          | CallOptString None -> pr ", undefined"
-          | CallOptString (Some s) -> pr ", \"%s\"" s
-          | CallStringList xs ->
-            pr ", [%s]" (String.concat "," (List.map (sprintf "\"%s\"") xs))
-          | CallInt i -> pr ", %d" i
-          | CallInt64 i -> pr ", %Ld" i
-          | CallBool b -> pr ", %b" b
-          | CallBuffer s -> pr ", \"%s\"" (c_quote s)
-        ) args;
+      | CallString s -> pr ", \"%s\"" s
+      | CallOptString None -> pr ", undefined"
+      | CallOptString (Some s) -> pr ", \"%s\"" s
+      | CallStringList xs ->
+        pr ", [%s]" (String.concat "," (List.map (sprintf "\"%s\"") xs))
+      | CallInt i -> pr ", %d" i
+      | CallInt64 i -> pr ", %Ld" i
+      | CallBool b -> pr ", %b" b
+      | CallBuffer s -> pr ", \"%s\"" (c_quote s)
+      ) args;
       (match optargs with
-       | None -> ()
-       | Some optargs ->
-         pr ", [";
-         let needs_comma = ref false in
-         List.iter (
-           fun optarg ->
-             if !needs_comma then pr ", ";
-             needs_comma := true;
-             match optarg with
-             | CallOBool (n, v) -> pr "{%s, %b}" n v
-             | CallOInt (n, v) -> pr "{%s, %d}" n v
-             | CallOInt64 (n, v) -> pr "{%s, %Ld}" n v
-             | CallOString (n, v) -> pr "{%s, \"%s\"}" n v
-             | CallOStringList (n, xs) ->
-               pr "{%s, [%s]}" n
-                 (String.concat "," (List.map (sprintf "\"%s\"") xs))
-         ) optargs;
-         pr "]";
+      | None -> ()
+      | Some optargs ->
+        pr ", [";
+        let needs_comma = ref false in
+        List.iter (
+          fun optarg ->
+            if !needs_comma then pr ", ";
+            needs_comma := true;
+            match optarg with
+            | CallOBool (n, v) -> pr "{%s, %b}" n v
+            | CallOInt (n, v) -> pr "{%s, %d}" n v
+            | CallOInt64 (n, v) -> pr "{%s, %Ld}" n v
+            | CallOString (n, v) -> pr "{%s, \"%s\"}" n v
+            | CallOStringList (n, xs) ->
+              pr "{%s, [%s]}" n
+                (String.concat "," (List.map (sprintf "\"%s\"") xs))
+        ) optargs;
+        pr "]";
       );
       pr "),\n"
   );
@@ -795,26 +795,26 @@ and generate_lua_bindtests () =
           | CallBuffer s -> pr "\"%s\"" (c_quote s)
       ) args;
       (match optargs with
-       | None -> ()
-       | Some optargs ->
-         if !needs_comma then pr ", ";
+      | None -> ()
+      | Some optargs ->
+        if !needs_comma then pr ", ";
 
-         pr "{";
-         needs_comma := false;
-         List.iter (
-           fun optarg ->
-             if !needs_comma then pr ", ";
-             needs_comma := true;
-             match optarg with
-             | CallOBool (n, v) -> pr "%s = %b" n v
-             | CallOInt (n, v) -> pr "%s = %d" n v
-             | CallOInt64 (n, v) -> pr "%s = \"%Ld\"" n v
-             | CallOString (n, v) -> pr "%s = \"%s\"" n v
-             | CallOStringList (n, xs) ->
-               pr "%s = {%s}" n
-                 (String.concat "," (List.map (sprintf "\"%s\"") xs))
-         ) optargs;
-         pr "}";
+        pr "{";
+        needs_comma := false;
+        List.iter (
+          fun optarg ->
+            if !needs_comma then pr ", ";
+            needs_comma := true;
+            match optarg with
+            | CallOBool (n, v) -> pr "%s = %b" n v
+            | CallOInt (n, v) -> pr "%s = %d" n v
+            | CallOInt64 (n, v) -> pr "%s = \"%Ld\"" n v
+            | CallOString (n, v) -> pr "%s = \"%s\"" n v
+            | CallOStringList (n, xs) ->
+              pr "%s = {%s}" n
+                (String.concat "," (List.map (sprintf "\"%s\"") xs))
+        ) optargs;
+        pr "}";
       );
       pr ")\n"
   );
@@ -871,33 +871,33 @@ and generate_golang_bindtests () =
       ) args;
       if !needs_comma then pr ", ";
       (match optargs with
-       | None -> pr "nil"
-       | Some optargs ->
-         pr "&guestfs.Optargs%s{" (String.capitalize_ascii f);
-         needs_comma := false;
-         List.iter (
-           fun optarg ->
-             if !needs_comma then pr ", ";
-             needs_comma := true;
-             match optarg with
-             | CallOBool (n, v) ->
-               let n = String.capitalize_ascii n in
-               pr "%s_is_set: true, %s: %b" n n v
-             | CallOInt (n, v) ->
-               let n = String.capitalize_ascii n in
-               pr "%s_is_set: true, %s: %d" n n v
-             | CallOInt64 (n, v) ->
-               let n = String.capitalize_ascii n in
-               pr "%s_is_set: true, %s: %Ld" n n v
-             | CallOString (n, v) ->
-               let n = String.capitalize_ascii n in
-               pr "%s_is_set: true, %s: \"%s\"" n n v
-             | CallOStringList (n, xs) ->
-               let n = String.capitalize_ascii n in
-               pr "%s_is_set: true, %s: []string{%s}"
-                 n n (String.concat ", " (List.map (sprintf "\"%s\"") xs))
-         ) optargs;
-         pr "}";
+      | None -> pr "nil"
+      | Some optargs ->
+        pr "&guestfs.Optargs%s{" (String.capitalize_ascii f);
+        needs_comma := false;
+        List.iter (
+          fun optarg ->
+            if !needs_comma then pr ", ";
+            needs_comma := true;
+            match optarg with
+            | CallOBool (n, v) ->
+              let n = String.capitalize_ascii n in
+              pr "%s_is_set: true, %s: %b" n n v
+            | CallOInt (n, v) ->
+              let n = String.capitalize_ascii n in
+              pr "%s_is_set: true, %s: %d" n n v
+            | CallOInt64 (n, v) ->
+              let n = String.capitalize_ascii n in
+              pr "%s_is_set: true, %s: %Ld" n n v
+            | CallOString (n, v) ->
+              let n = String.capitalize_ascii n in
+              pr "%s_is_set: true, %s: \"%s\"" n n v
+            | CallOStringList (n, xs) ->
+              let n = String.capitalize_ascii n in
+              pr "%s_is_set: true, %s: []string{%s}"
+                n n (String.concat ", " (List.map (sprintf "\"%s\"") xs))
+        ) optargs;
+        pr "}";
       );
       pr "); err != nil {\n";
       pr "        panic (fmt.Sprintf (\"error: %%s\", err))\n";
@@ -922,7 +922,7 @@ and generate_php_bindtests () =
    *
    * Hence, check only the non-optional arguments, and fix the
    * baseline output to expect always "unset" optional arguments.
-  *)
+   *)
 
   pr "--TEST--\n";
   pr "General PHP binding test.\n";
@@ -972,7 +972,7 @@ and generate_php_bindtests () =
           let line = input_line chan in
           (match String.nsplit ":" line with
            | ("obool"|"oint"|"oint64"|"ostring"|"ostringlist") as x :: _ ->
-             pr "%s: unset\n" x
+              pr "%s: unset\n" x
            | _ -> pr "%s\n" line
           );
           loop ()
@@ -985,9 +985,72 @@ and generate_php_bindtests () =
 and generate_rust_bindtests () =
   generate_header CStyle GPLv2plus;
 
-  (* Language-independent bindings tests - we do it this way to
-   * ensure there is parity in testing bindings across all languages.
-  *)
+  pr "extern crate guestfs;\n";
+  pr "use guestfs::*;\n";
+  pr "use std::default::Default;\n";
+  pr "\n";
+  pr "fn main() {\n";
+  pr "    let g = match Handle::create() {\n";
+  pr "        Ok(g) => g,\n";
+  pr "        Err(e) => panic!(format!(\" could not create handle {}\", e)),\n";
+  pr "    };\n";
+  generate_lang_bindtests (
+    fun f args optargs ->
+      pr "    g.%s(" f;
+      let needs_comma = ref false in
+      List.iter (
+        fun arg ->
+          if !needs_comma then pr ", ";
+          needs_comma := true;
+          match arg with
+          | CallString s -> pr "\"%s\"" s
+          | CallOptString None -> pr "None"
+          | CallOptString (Some s) -> pr "Some(\"%s\")" s
+          | CallStringList xs ->
+            pr "&vec![%s]"
+              (String.concat ", " (List.map (sprintf "\"%s\"") xs))
+          | CallInt i -> pr "%d" i
+          | CallInt64 i -> pr "%Ldi64" i
+          | CallBool b -> pr "%b" b
+          | CallBuffer s ->
+            let f = fun x -> sprintf "%d" (Char.code x) in
+            pr "&[%s]"
+              (String.concat ", " (List.map f (String.explode s)))
+      ) args;
+      if !needs_comma then pr ", ";
+      (match optargs with
+       | None -> pr "Default::default()"
+       | Some optargs ->
+         pr "%sOptArgs{" (Rust.snake2caml f);
+         needs_comma := false;
+         List.iter (
+           fun optarg ->
+             if !needs_comma then pr ", ";
+             needs_comma := true;
+             match optarg with
+             | CallOBool (n, v) ->
+               pr "%s: Some(%b)" n v
+             | CallOInt (n, v) ->
+               pr "%s: Some(%d)" n v
+             | CallOInt64 (n, v) ->
+               pr "%s: Some(%Ldi64)" n v
+             | CallOString (n, v) ->
+               pr "%s: Some(\"%s\")" n v
+             | CallOStringList (n, xs) ->
+               pr "%s: Some(&[%s])"
+                 n (String.concat ", " (List.map (sprintf "\"%s\"") xs))
+         ) optargs;
+         if !needs_comma then pr ", ";
+         pr ".. Default::default()}";
+      );
+      pr ").expect(\"failed to run\");\n";
+  );
+  pr "    println!(\"EOF\");\n";
+  pr "}\n";
+
+(* Language-independent bindings tests - we do it this way to
+ * ensure there is parity in testing bindings across all languages.
+ *)
 and generate_lang_bindtests call =
   call "internal_test"
     [CallString "abc"; CallOptString (Some "def");
@@ -1087,4 +1150,4 @@ and generate_lang_bindtests call =
      CallBuffer "abc\000abc"]
     (Some [CallOStringList ("ostringlist", ["optelem1"; "optelem2"; "optelem3"])]);
 
-  (* XXX Add here tests of the return and error functions. *)
+(* XXX Add here tests of the return and error functions. *)
