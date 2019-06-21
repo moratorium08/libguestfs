@@ -18,45 +18,44 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
 extern crate guestfs;
 
-use std::default::Default;
-
 #[test]
-fn verbose() {
+fn rint() {
     let g = guestfs::Handle::create().expect("create");
-    g.set_verbose(true).expect("set_verbose");
-    assert_eq!(g.get_verbose().expect("get_verbose"), true);
-    g.set_verbose(false).expect("set_verbose");
-    assert_eq!(g.get_verbose().expect("get_verbose"), false);
+    assert_eq!(g.internal_test_rint("10").unwrap(), 10);
+    assert!(g.internal_test_rinterr().is_err())
 }
 
 #[test]
-fn trace() {
+fn rint64() {
     let g = guestfs::Handle::create().expect("create");
-    g.set_trace(true).expect("set_trace");
-    assert_eq!(g.get_trace().expect("get_trace"), true);
-    g.set_trace(false).expect("set_trace");
-    assert_eq!(g.get_trace().expect("get_trace"), false);
+    assert_eq!(g.internal_test_rint64("10").unwrap(), 10);
+    assert!(g.internal_test_rint64err().is_err())
 }
 
 #[test]
-fn autosync() {
+fn rbool() {
     let g = guestfs::Handle::create().expect("create");
-    g.set_autosync(true).expect("set_autosync");
-    assert_eq!(g.get_autosync().expect("get_autosync"), true);
-    g.set_autosync(false).expect("set_autosync");
-    assert_eq!(g.get_autosync().expect("get_autosync"), false);
+    assert!(g.internal_test_rbool("true").unwrap());
+    assert!(!g.internal_test_rbool("false").unwrap());
+    assert!(g.internal_test_rboolerr().is_err())
 }
 
 #[test]
-fn path() {
+fn rconststring() {
     let g = guestfs::Handle::create().expect("create");
-    g.set_path(Some(".")).expect("set_path");
-    assert_eq!(g.get_path().expect("get_path"), ".");
+    assert_eq!(
+        g.internal_test_rconststring("test").unwrap(),
+        "static string"
+    );
+    assert!(g.internal_test_rconststringerr().is_err())
 }
 
 #[test]
-fn add_drive() {
+fn rconstoptstring() {
     let g = guestfs::Handle::create().expect("create");
-    g.add_drive("/dev/null", Default::default())
-        .expect("add_drive");
+    assert_eq!(
+        g.internal_test_rconstoptstring("test").unwrap(),
+        Some("static string")
+    );
+    assert_eq!(g.internal_test_rconstoptstringerr().unwrap(), None)
 }
