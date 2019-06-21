@@ -200,7 +200,7 @@ fn arg_string_list (v: &Vec<&str>) -> Vec<*const i8> {
     for x in v.iter() {
         let y: &str = x;
         let s = ffi::CString::new(y).unwrap();
-        w.push(s.as_ptr());
+        w.push(s.into_raw() as *const i8);
     }
     w.push(ptr::null());
     w
@@ -383,27 +383,27 @@ impl UUID {
         pr "\n";
         pr "/* Optional Structs */\n";
         pr "#[derive(Default)]\n";
-        pr "pub struct OptArgs%s%s {\n" cname opt_life_parameter;
+        pr "pub struct %sOptArgs%s {\n" cname opt_life_parameter;
         List.iter (
           fun optarg ->
             let n = translate_bad_symbols (name_of_optargt optarg) in
             match optarg with
             | OBool _ ->
-              pr "    _%s: Option<bool>,\n" n
+              pr "    pub %s: Option<bool>,\n" n
             | OInt _ ->
-              pr "    _%s: Option<i32>,\n" n
+              pr "    pub %s: Option<i32>,\n" n
             | OInt64 _ ->
-              pr "    _%s: Option<i64>,\n" n
+              pr "    pub %s: Option<i64>,\n" n
             | OString _ ->
-              pr "    _%s: Option<&'a str>,\n" n
+              pr "    pub %s: Option<&'a str>,\n" n
             | OStringList _ ->
-              pr "    _%s: Option<Vec<&'a str>>,\n" n
+              pr "    pub %s: Option<Vec<&'a str>>,\n" n
         ) optargs;
         pr "}\n\n";
 
         (* raw struct for C bindings *)
         pr "#[repr(C)]\n";
-        pr "struct RawOptArgs%s {\n" cname;
+        pr "struct Raw%sOptArgs {\n" cname;
         pr "    bitmask: u64,\n";
         List.iter (
           fun optarg ->
@@ -422,41 +422,42 @@ impl UUID {
         ) optargs;
         pr "}\n\n";
 
-        pr "impl%s convert::From<OptArgs%s%s> for RawOptArgs%s {\n"
+        pr "impl%s convert::From<%sOptArgs%s> for Raw%sOptArgs {\n"
           opt_life_parameter cname opt_life_parameter cname;
-        pr "    fn from(optargs: OptArgs%s%s) -> Self {\n" cname opt_life_parameter;
+        pr "    fn from(optargs: %sOptArgs%s) -> Self {\n" cname opt_life_parameter;
         pr "        let mut bitmask = 0;\n";
-        pr "         RawOptArgs%s {\n" cname;
+        pr "         Raw%sOptArgs {\n" cname;
         List.iteri (
           fun index optarg ->
             let n = translate_bad_symbols (name_of_optargt optarg) in
             match optarg with
             | OBool _ ->
-              pr "        %s: if let Some(v) = optargs._%s {\n" n n;
+              pr "        %s: if let Some(v) = optargs.%s {\n" n n;
               pr "            bitmask |= 1 << %d;\n" index;
               pr "            if v { 1 } else { 0 }\n";
               pr "        } else {\n";
               pr "            0\n";
               pr "        },\n";
             | OInt _ | OInt64 _  ->
-              pr "        %s: if let Some(v) = optargs._%s {\n" n n;
+              pr "        %s: if let Some(v) = optargs.%s {\n" n n;
               pr "            bitmask |= 1 << %d;\n" index;
               pr "            v\n";
               pr "        } else {\n";
               pr "            0\n";
               pr "        },\n";
             | OString _ ->
-              pr "        %s: if let Some(v) = optargs._%s {\n" n n;
+              pr "        %s: if let Some(v) = optargs.%s {\n" n n;
               pr "            bitmask |= 1 << %d;\n" index;
-              pr "            let y: &str = &v;\n";
-              pr "            ffi::CString::new(y).unwrap().as_ptr()\n";
+              (* TODO: into_raw: requires free *)
+              pr "            ffi::CString::new(v).unwrap().into_raw()\n";
               pr "        } else {\n";
               pr "            ptr::null()\n";
               pr "        },\n";
             | OStringList _ ->
-              pr "        %s: if let Some(v) = optargs._%s {\n" n n;
+              pr "        %s: if let Some(v) = optargs.%s {\n" n n;
               pr "            bitmask |= 1 << %d;\n" index;
-              pr "            arg_string_list(&v).as_ptr()";
+              (* TODO: into_raw: requires free *)
+              pr "            Box::into_raw(arg_string_list(&v).into_boxed_slice()) as *const *const c_char\n";
               pr "        } else {\n";
               pr "            ptr::null()\n";
               pr "        },\n";
@@ -465,29 +466,6 @@ impl UUID {
         pr "         }\n";
         pr "    }\n";
         pr "}\n";
-
-        pr "impl%s OptArgs%s%s {\n" opt_life_parameter cname opt_life_parameter;
-        List.iter (
-          fun optarg ->
-            let n = translate_bad_symbols (name_of_optargt optarg) in
-            pr "    pub fn %s(self, %s: " n n;
-            (match optarg with
-            | OBool _ ->
-              pr "bool"
-            | OInt _ ->
-              pr "i32"
-            | OInt64 _ ->
-              pr "i64"
-            | OString _ ->
-              pr "&'a str"
-            | OStringList _ ->
-              pr "Vec<&'a str>"
-            );
-            pr ") -> OptArgs%s%s {\n" cname opt_life_parameter;
-            pr "        OptArgs%s { _%s: Some(%s), ..self }\n" cname n n;
-            pr "    }\n"
-        ) optargs;
-        pr "}\n\n";
       );
   ) (actions |> external_functions |> sort);
 
@@ -516,7 +494,7 @@ impl UUID {
        | _ -> ()
       );
       if optargs <> [] then
-        pr ", optarg: *const RawOptArgs%s" cname;
+        pr ", optarg: *const Raw%sOptArgs" cname;
 
       pr ") -> ";
 
@@ -567,7 +545,7 @@ impl UUID {
       if optargs <> [] then (
         if !comma then pr ", ";
         comma := true;
-        pr "optargs: OptArgs%s" cname
+        pr "optargs: %sOptArgs" cname
       );
       pr ")";
 
@@ -601,28 +579,30 @@ impl UUID {
         | String (_, n) ->
           (* TODO: handle errors *)
           pr "let c_%s = \n" n;
-          pr "    ffi::CString::new(%s).expect(\"CString::new failed\").as_ptr();\n" n;
+              (* TODO: into_raw: requires free *)
+          pr "    ffi::CString::new(%s).expect(\"CString::new failed\").into_raw();\n" n;
         | OptString n ->
           pr "let c_%s = match %s {" n n;
           pr "    Some(s) => \n";
           pr "        ffi::CString::new(s)\n";
           pr "            .expect(\"CString::new failed\")\n";
-          pr "            .as_ptr(),\n";
+              (* TODO: into_raw: requires free *)
+          pr "            .into_raw(),\n";
           pr "    None => ptr::null(),\n";
           pr "};\n";
         | StringList (_, n) ->
-          pr "let c_%s = arg_string_list(&%s).as_ptr();\n" n n;
+              (* TODO: into_raw: requires free *)
+          pr "let c_%s = Box::into_raw(arg_string_list(&%s).into_boxed_slice());\n" n n;
         | BufferIn n ->
           pr "let c_%s_len = (&%s).len();\n" n n;
-          pr "let c_%s = ffi::CString::new(%s)\n" n n;
-          pr "            .expect(\"CString::new failed\")\n";
-          pr "            .as_ptr();\n";
+          pr "let c_%s = unsafe { ffi::CString::from_vec_unchecked(%s) }\n" n n;
+              (* TODO: into_raw: requires free *)
+          pr "            .into_raw();\n";
         | Int _ | Int64 _ | Pointer _ -> ()
       ) args;
 
-      (* TODO: handle optargs *)
       if optargs <> [] then (
-        pr "let optargs_raw = RawOptArgs%s::from(optargs);\n" cname;
+        pr "let optargs_raw = Raw%sOptArgs::from(optargs);\n" cname;
       );
 
       (match ret with
@@ -650,7 +630,7 @@ impl UUID {
        | _ -> ()
       );
       if optargs <> [] then (
-        pr ", &optargs_raw as *const RawOptArgs%s" cname;
+        pr ", &optargs_raw as *const Raw%sOptArgs" cname;
       );
       pr ") };\n";
 

@@ -31,6 +31,6 @@ fn no_optargs() {
 fn one_optarg() {
     let g = guestfs::Handle::create().expect("create");
     g.add_drive("/dev/null",
-        guestfs::OptArgsAddDrive::default().readonly(true))
+                guestfs::AddDriveOptArgs { readonly: Some(true), ..Default::default() })
         .expect("add_drive");
 }
