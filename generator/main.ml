@@ -374,7 +374,7 @@ Run it from the top source directory using the command
 
   output_to "rust/src/lib.rs"
             Rust.generate_rust;
-  output_to "rust/tests/bind_test.rs"
+  output_to "rust/src/bin/bindtests.rs"
             Bindtests.generate_rust_bindtests;
 
   (* Generate the list of files generated -- last. *)

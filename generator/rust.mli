@@ -17,3 +17,6 @@
 *)
 
 val generate_rust: unit -> unit
+
+(* for bindtests.ml *)
+val snake2caml: string -> string
