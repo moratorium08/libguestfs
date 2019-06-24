@@ -1,4 +1,4 @@
-/* libguestfs Python bindings
+/* libguestfs Rust bindings
 Copyright (C) 2009-2019 Red Hat Inc.
 
 This program is free software; you can redistribute it and/or modify
