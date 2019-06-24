@@ -61,14 +61,16 @@ let generate_rust () =
   pr "
 use std::collections;
 use std::convert;
+use std::convert::TryFrom;
 use std::ffi;
-use std::slice;
-use std::ptr;
 use std::os::raw::{c_char, c_int, c_void};
+use std::ptr;
+use std::slice;
+use std::str;
 
 
 #[allow(non_camel_case_types)]
-enum guestfs_h {}  // opaque struct
+enum guestfs_h {} // opaque struct
 
 #[link(name = \"guestfs\")]
 extern \"C\" {
@@ -141,22 +143,22 @@ impl CreateFlags {
 }
 
 struct NullTerminatedIter<T: Copy + Clone> {
-    p: *const T
+    p: *const *const T,
 }
 
 impl<T: Copy + Clone> NullTerminatedIter<T> {
-    fn new(p: *const T) -> NullTerminatedIter<T> {
-        NullTerminatedIter{ p }
+    fn new(p: *const *const T) -> NullTerminatedIter<T> {
+        NullTerminatedIter { p }
     }
 }
 
 impl<T: Copy + Clone> Iterator for NullTerminatedIter<T> {
-    type Item = T;
-    fn next(&mut self) -> Option<T> {
-        if self.p.is_null() {
+    type Item = *const T;
+    fn next(&mut self) -> Option<*const T> {
+        let r = unsafe { *(self.p) };
+        if r.is_null() {
             None
         } else {
-            let r = unsafe { *(self.p) };
             self.p = unsafe { self.p.offset(1) };
             Some(r)
         }
@@ -171,12 +173,15 @@ struct RawList<T> {
 
 struct RawListIter<'a, T> {
     current: u32,
-    list: &'a RawList<T>
+    list: &'a RawList<T>,
 }
 
-impl<T> RawList<T>  {
+impl<T> RawList<T> {
     fn iter<'a>(&'a self) -> RawListIter<'a, T> {
-        RawListIter{ current: 0, list: self }
+        RawListIter {
+            current: 0,
+            list: self,
+        }
     }
 }
 
@@ -193,60 +198,81 @@ impl<'a, T> Iterator for RawListIter<'a, T> {
     }
 }
 
-
-fn arg_string_list (v: &Vec<&str>) -> Vec<*const i8> {
-    let length = v.len();
+fn arg_string_list(v: &[&str]) -> Result<Vec<ffi::CString>, Error> {
     let mut w = Vec::new();
     for x in v.iter() {
         let y: &str = x;
-        let s = ffi::CString::new(y).unwrap();
-        w.push(s.into_raw() as *const i8);
+        w.push(ffi::CString::new(y)?);
     }
-    w.push(ptr::null());
-    w
+    Ok(w)
 }
 
-fn hashmap (l: *const *const c_char) -> collections::HashMap<String, String> {
+fn free_string_list(l: *const *const c_char) {
+    for buf in NullTerminatedIter::new(l) {
+        unsafe { free(buf as * const c_void) };
+    }
+    unsafe { free(l as *const c_void) };
+}
+
+fn hashmap(l: *const *const c_char) -> Result<collections::HashMap<String, String>, Error> {
     let mut map = collections::HashMap::new();
     let mut iter = NullTerminatedIter::new(l);
     while let Some(key) = iter.next() {
         if let Some(val) = iter.next() {
-            let key = unsafe { ffi::CStr::from_ptr(key) }.to_str().unwrap();
-            let val = unsafe { ffi::CStr::from_ptr(val) }.to_str().unwrap();
+            let key = unsafe { ffi::CStr::from_ptr(key) }.to_str()?;
+            let val = unsafe { ffi::CStr::from_ptr(val) }.to_str()?;
             map.insert(key.to_string(), val.to_string());
         } else {
+            // Internal Error -> panic
             panic!(\"odd number of items in hash table\");
         }
     }
-    map
+    Ok(map)
 }
 
-fn struct_list<T, S: convert::From<*const T>>(l: *const RawList<T>) -> Vec<S> {
+fn struct_list<T, S: TryFrom<*const T, Error = Error>>(
+    l: *const RawList<T>,
+) -> Result<Vec<S>, Error> {
     let mut v = Vec::new();
-    for x in unsafe {&*l}.iter() {
-        v.push(S::from(x));
+    for x in unsafe { &*l }.iter() {
+        v.push(S::try_from(x)?);
     }
-    v
+    Ok(v)
 }
 
-fn string_list (l: *const *const c_char) -> Vec<String> {
+fn string_list(l: *const *const c_char) -> Result<Vec<String>, Error> {
     let mut v = Vec::new();
     for x in NullTerminatedIter::new(l) {
-        let s = unsafe { ffi::CStr::from_ptr(x) }.to_str().unwrap();
+        let s = unsafe { ffi::CStr::from_ptr(x) }.to_str()?;
         v.push(s.to_string());
     }
-    v
-}
-
-fn free_string_list(l: *const *const c_char) {
-    // TODO
+    Ok(v)
 }
 
 #[derive(Debug)]
-pub struct Error {
+pub struct APIError {
     operation: &'static str,
     message: String,
-    errno: i32
+    errno: i32,
+}
+
+#[derive(Debug)]
+pub enum Error {
+    API(APIError),
+    IllegalString(ffi::NulError),
+    Utf8Error(str::Utf8Error),
+}
+
+impl convert::From<ffi::NulError> for Error {
+    fn from(error: ffi::NulError) -> Self {
+        Error::IllegalString(error)
+    }
+}
+
+impl convert::From<str::Utf8Error> for Error {
+    fn from(error: str::Utf8Error) -> Self {
+        Error::Utf8Error(error)
+    }
 }
 
 impl Handle {
@@ -271,13 +297,17 @@ impl Handle {
     fn get_error_from_handle(&self, operation: &'static str) -> Error {
         let c_msg = unsafe { guestfs_last_error(self.g) };
         let message = unsafe { ffi::CStr::from_ptr(c_msg).to_str().unwrap().to_string() };
-        let errno = unsafe { guestfs_last_errno(self.g) } ;
-        Error { operation, message, errno }
+        let errno = unsafe { guestfs_last_errno(self.g) };
+        Error::API(APIError {
+            operation,
+            message,
+            errno,
+        })
     }
 }
 
 pub struct UUID {
-    uuid: [u8; 32]
+    uuid: [u8; 32],
 }
 
 impl UUID {
@@ -288,7 +318,6 @@ impl UUID {
         self.uuid
     }
 }
-
 ";
   List.iter (
     fun { s_camel_name = name; s_name = c_name; s_cols = cols } ->
@@ -325,22 +354,24 @@ impl UUID {
       ) cols;
       pr "}\n";
       pr "\n";
-      pr "impl convert::From<*const Raw%s> for %s {\n" name name;
-      pr "    fn from(raw: *const Raw%s) -> Self {\n" name;
-      pr "        unsafe { %s {\n" name;
+      pr "impl TryFrom<*const Raw%s> for %s {\n" name name;
+      pr "    type Error = Error;\n";
+      pr "    fn try_from(raw: *const Raw%s) -> Result<Self, Self::Error> {\n" name;
+      pr "        Ok(unsafe {\n";
+      pr "            %s {\n" name;
       List.iter (
         fun x ->
-          indent 3;
+          indent 4;
           match x with
           | n, FChar ->
             pr "%s: (*raw).%s as i8,\n" n n;
           | n, FString ->
             pr "%s: {\n" n;
-            indent 4;
+            indent 5;
             pr "let s = ffi::CStr::from_ptr((*raw).%s);\n" n;
+            indent 5;
+            pr "s.to_str()?.to_string()\n";
             indent 4;
-            pr "s.to_str().unwrap().to_string()\n";
-            indent 3;
             pr "},\n"
           | n, FBuffer ->
             pr "%s: slice::from_raw_parts((*raw).%s as *const u8, (*raw).%s_len).to_vec(),\n" n n n
@@ -349,9 +380,14 @@ impl UUID {
           | n, (FUInt32 | FInt32 | FUInt64 | FInt64 | FBytes) ->
             pr "%s: (*raw).%s,\n" n n
           | n, FOptPercent ->
-            pr "%s: if (*raw).%s < 0.0 { None } else { Some((*raw).%s) },\n" n n n
+            pr "%s: if (*raw).%s < 0.0 {\n" n n;
+            indent 4; pr "    None\n";
+            indent 4; pr "} else {\n";
+            indent 4; pr "    Some((*raw).%s)\n" n;
+            indent 4; pr"},\n"
       ) cols;
-      pr "        } }\n";
+      pr "            }\n";
+      pr "        })\n";
       pr "    }\n";
       pr "}\n"
   ) external_structs;
@@ -361,11 +397,26 @@ impl UUID {
   pr "extern \"C\" {\n";
   List.iter (
     fun {  s_camel_name = name; s_name = c_name; } ->
-      pr "fn guestfs_free_%s(v: *const Raw%s);\n" c_name name;
-      pr "fn guestfs_free_%s_list(l: *const RawList<Raw%s>);\n" c_name name;
+      pr "    #[allow(dead_code)]\n";
+      pr "    fn guestfs_free_%s(v: *const Raw%s);\n" c_name name;
+      pr "    #[allow(dead_code)]\n";
+      pr "    fn guestfs_free_%s_list(l: *const RawList<Raw%s>);\n" c_name name;
   ) external_structs;
   pr "}\n";
 
+  (* [Outline] There are three types for each optional structs: SOptArgs,
+   * CExprSOptArgs, RawSOptArgs.
+   * SOptArgs: for Rust bindings' API. This can be seen by bindings' users.
+   * CExprSOptArgs: Each field has C expression(e.g. CString, *const c_char)
+   * RawSOptArgs: Each field has raw pointers or integer values
+   *
+   * SOptArgs ---try_into()---> CExprSOptArgs ---to_raw()---> RawSOptArgs
+   *
+   * Note: direct translation from SOptArgs to RawSOptArgs will cause a memory
+   * management problem. Using into_raw/from_raw, this problem can be avoided,
+   * but it is complex to handle freeing memories manually in Rust because of
+   * panic/?/etc.
+   *)
 
   (* generate structs for optional arguments *)
   List.iter (
@@ -397,9 +448,57 @@ impl UUID {
             | OString _ ->
               pr "    pub %s: Option<&'a str>,\n" n
             | OStringList _ ->
-              pr "    pub %s: Option<Vec<&'a str>>,\n" n
+              pr "    pub %s: Option<&'a [&'a str]>,\n" n
         ) optargs;
         pr "}\n\n";
+
+        pr "struct CExpr%sOptArgs {\n" cname;
+        List.iter (
+          fun optarg ->
+            let n = translate_bad_symbols (name_of_optargt optarg) in
+            match optarg with
+            | OBool _ | OInt _ ->
+              pr "    %s: Option<c_int>,\n" n
+            | OInt64 _ ->
+              pr "    %s: Option<i64>,\n" n
+            | OString _ ->
+              pr "    %s: Option<ffi::CString>,\n" n
+            | OStringList _ ->
+              (* buffers and their pointer vector *)
+              pr "    %s: Option<(Vec<ffi::CString>, Vec<*const c_char>)>,\n" n
+        ) optargs;
+        pr "}\n\n";
+
+        pr "impl%s TryFrom<%sOptArgs%s> for CExpr%sOptArgs {\n"
+          opt_life_parameter cname opt_life_parameter cname;
+        pr "    type Error = Error;\n";
+        pr "    fn try_from(optargs: %sOptArgs%s) -> Result<Self, Self::Error> {\n" cname opt_life_parameter;
+        pr "        Ok(CExpr%sOptArgs {\n" cname;
+        List.iteri (
+          fun index optarg ->
+            let n = translate_bad_symbols (name_of_optargt optarg) in
+            match optarg with
+            | OBool _ ->
+              pr "        %s: optargs.%s.map(|b| if b { 1 } else { 0 }),\n" n n;
+            | OInt _ | OInt64 _  ->
+              pr "        %s: optargs.%s, \n" n n;
+            | OString _ ->
+              pr "        %s: optargs.%s.map(|v| ffi::CString::new(v)).transpose()?,\n" n n;
+            | OStringList _ ->
+              pr "        %s: optargs.%s.map(\n" n n;
+              pr "                |v| Ok::<_, Error>({\n";
+              pr "                         let v = arg_string_list(v)?;\n";
+              pr "                         let mut w = (&v).into_iter()\n";
+              pr "                                         .map(|v| v.as_ptr())\n";
+              pr "                                         .collect::<Vec<_>>();\n";
+              pr "                         w.push(ptr::null());\n";
+              pr "                         (v, w)\n";
+              pr "                    })\n";
+              pr "                ).transpose()?,\n";
+        ) optargs;
+        pr "         })\n";
+        pr "    }\n";
+        pr "}\n";
 
         (* raw struct for C bindings *)
         pr "#[repr(C)]\n";
@@ -422,23 +521,16 @@ impl UUID {
         ) optargs;
         pr "}\n\n";
 
-        pr "impl%s convert::From<%sOptArgs%s> for Raw%sOptArgs {\n"
-          opt_life_parameter cname opt_life_parameter cname;
-        pr "    fn from(optargs: %sOptArgs%s) -> Self {\n" cname opt_life_parameter;
+        pr "impl convert::From<&CExpr%sOptArgs> for Raw%sOptArgs {\n"
+          cname cname;
+        pr "    fn from(optargs: &CExpr%sOptArgs) -> Self {\n" cname;
         pr "        let mut bitmask = 0;\n";
-        pr "         Raw%sOptArgs {\n" cname;
+        pr "        Raw%sOptArgs {\n" cname;
         List.iteri (
           fun index optarg ->
             let n = translate_bad_symbols (name_of_optargt optarg) in
             match optarg with
-            | OBool _ ->
-              pr "        %s: if let Some(v) = optargs.%s {\n" n n;
-              pr "            bitmask |= 1 << %d;\n" index;
-              pr "            if v { 1 } else { 0 }\n";
-              pr "        } else {\n";
-              pr "            0\n";
-              pr "        },\n";
-            | OInt _ | OInt64 _  ->
+            | OBool _ | OInt _ | OInt64 _  ->
               pr "        %s: if let Some(v) = optargs.%s {\n" n n;
               pr "            bitmask |= 1 << %d;\n" index;
               pr "            v\n";
@@ -446,18 +538,16 @@ impl UUID {
               pr "            0\n";
               pr "        },\n";
             | OString _ ->
-              pr "        %s: if let Some(v) = optargs.%s {\n" n n;
+              pr "        %s: if let Some(ref v) = optargs.%s {\n" n n;
               pr "            bitmask |= 1 << %d;\n" index;
-              (* TODO: into_raw: requires free *)
-              pr "            ffi::CString::new(v).unwrap().into_raw()\n";
+              pr "            v.as_ptr()\n";
               pr "        } else {\n";
               pr "            ptr::null()\n";
               pr "        },\n";
             | OStringList _ ->
-              pr "        %s: if let Some(v) = optargs.%s {\n" n n;
+              pr "        %s: if let Some((_, ref v)) = optargs.%s {\n" n n;
               pr "            bitmask |= 1 << %d;\n" index;
-              (* TODO: into_raw: requires free *)
-              pr "            Box::into_raw(arg_string_list(&v).into_boxed_slice()) as *const *const c_char\n";
+              pr "            v.as_ptr()\n";
               pr "        } else {\n";
               pr "            ptr::null()\n";
               pr "        },\n";
@@ -475,7 +565,8 @@ impl UUID {
     fun ({ name = name; shortdesc = shortdesc;
           style = (ret, args, optargs) } as f) ->
       let cname = snake2caml name in
-      pr "fn %s(g: *const guestfs_h" f.c_function;
+      pr "    #[allow(non_snake_case)]\n";
+      pr "    fn %s(g: *const guestfs_h" f.c_function;
       List.iter (
         fun arg ->
           pr ", ";
@@ -519,14 +610,16 @@ impl UUID {
 
   pr "impl Handle {\n";
   List.iter (
-    fun ({ name = name; shortdesc = shortdesc;
+    fun ({ name = name; shortdesc = shortdesc; longdesc = longdesc;
           style = (ret, args, optargs) } as f) ->
       let cname = snake2caml name in
-      pr "    /// %s \n" shortdesc;
+      pr "    /// %s\n" shortdesc;
+      pr "    #[allow(non_snake_case)]\n";
       pr "    pub fn %s" name;
 
       (* generate arguments *)
       pr "(&self, ";
+
       let comma = ref false in
       List.iter (
         fun arg ->
@@ -538,9 +631,9 @@ impl UUID {
           | Int64 n -> pr "%s: i64" n
           | String (_, n) -> pr "%s: &str" n
           | OptString n -> pr "%s: Option<&str>" n
-          | StringList (_, n) -> pr "%s: Vec<&str>" n
-          | BufferIn n -> pr "%s: Vec<u8>" n
-          | Pointer (_, n) -> pr "%s: usize" n
+          | StringList (_, n) -> pr "%s: &[&str]" n
+          | BufferIn n -> pr "%s: &[u8]" n
+          | Pointer (_, n) -> pr "%s: *mut c_void" n
       ) args;
       if optargs <> [] then (
         if !comma then pr ", ";
@@ -570,45 +663,35 @@ impl UUID {
       | RBufferOut _ -> pr "Vec<u8>");
       pr ", Error> {\n";
 
+
       let _pr = pr in
       let pr fs = indent 2; pr fs in
       List.iter (
         function
         | Bool n ->
-          pr "let c_%s = if %s { 1 } else { 0 };\n" n n
+          pr "let %s = if %s { 1 } else { 0 };\n" n n
         | String (_, n) ->
-          (* TODO: handle errors *)
-          pr "let c_%s = \n" n;
-              (* TODO: into_raw: requires free *)
-          pr "    ffi::CString::new(%s).expect(\"CString::new failed\").into_raw();\n" n;
+          pr "let c_%s = ffi::CString::new(%s)?;\n" n n;
         | OptString n ->
-          pr "let c_%s = match %s {" n n;
-          pr "    Some(s) => \n";
-          pr "        ffi::CString::new(s)\n";
-          pr "            .expect(\"CString::new failed\")\n";
-              (* TODO: into_raw: requires free *)
-          pr "            .into_raw(),\n";
-          pr "    None => ptr::null(),\n";
-          pr "};\n";
+          pr "let c_%s = %s.map(|s| ffi::CString::new(s)).transpose()?;\n" n n;
         | StringList (_, n) ->
-              (* TODO: into_raw: requires free *)
-          pr "let c_%s = Box::into_raw(arg_string_list(&%s).into_boxed_slice());\n" n n;
+          pr "let c_%s_v = arg_string_list(%s)?;\n" n n;
+          pr "let mut c_%s = (&c_%s_v).into_iter().map(|v| v.as_ptr()).collect::<Vec<_>>();\n" n n;
+          pr "c_%s.push(ptr::null());\n" n;
         | BufferIn n ->
-          pr "let c_%s_len = (&%s).len();\n" n n;
-          pr "let c_%s = unsafe { ffi::CString::from_vec_unchecked(%s) }\n" n n;
-              (* TODO: into_raw: requires free *)
-          pr "            .into_raw();\n";
+          pr "let c_%s_len = %s.len();\n" n n;
+          pr "let c_%s = unsafe { ffi::CString::from_vec_unchecked(%s.to_vec())};\n" n n;
         | Int _ | Int64 _ | Pointer _ -> ()
       ) args;
-
-      if optargs <> [] then (
-        pr "let optargs_raw = Raw%sOptArgs::from(optargs);\n" cname;
-      );
 
       (match ret with
        | RBufferOut _ ->
          pr "let mut size = 0usize;\n"
        | _ -> ()
+      );
+
+      if optargs <> [] then (
+        pr "let optargs_cexpr = CExpr%sOptArgs::try_from(optargs)?;\n" cname;
       );
 
       pr "\n";
@@ -619,18 +702,19 @@ impl UUID {
         fun arg ->
           pr ", ";
           match arg with
-          | Bool n | String (_, n) | OptString n -> pr "c_%s" n
-          | Int n | Int64 n -> pr "%s" n
-          | Pointer _ -> pr "ptr::null()" (* XXX: what is pointer? *)
-          | StringList (_, n) -> pr "c_%s as *const *const c_char" n
-          | BufferIn n -> pr "c_%s, c_%s_len" n n
+          | String (_, n)  -> pr "(&c_%s).as_ptr()" n
+          | OptString n -> pr "match &c_%s { Some(ref s) => s.as_ptr(), None => ptr::null() }\n" n
+          | StringList (_, n) -> pr "(&c_%s).as_ptr() as *const *const c_char" n
+          | Bool n | Int n | Int64 n | Pointer (_, n) -> pr "%s" n
+          | BufferIn n -> pr "(&c_%s).as_ptr(), c_%s_len" n n
       ) args;
       (match ret with
-       | RBufferOut _ -> pr ", &size as *const usize"
+       | RBufferOut _ -> pr ", &mut size as *mut usize"
        | _ -> ()
       );
       if optargs <> [] then (
-        pr ", &optargs_raw as *const Raw%sOptArgs" cname;
+        pr ", &(Raw%sOptArgs::from(&optargs_cexpr)) as *const Raw%sOptArgs"
+          cname cname;
       );
       pr ") };\n";
 
@@ -640,66 +724,85 @@ impl UUID {
        | `CannotReturnError -> ()
        | `ErrorIsMinusOne ->
          pr "if r == -1 {\n";
-         pr "    return Err(self.get_error_from_handle (\"%s\"));\n" name;
+         pr "    return Err(self.get_error_from_handle(\"%s\"));\n" name;
          pr "}\n"
        | `ErrorIsNULL ->
          pr "if r.is_null() {\n";
-         pr "    return Err(self.get_error_from_handle (\"%s\"));\n" name;
+         pr "    return Err(self.get_error_from_handle(\"%s\"));\n" name;
          pr "}\n"
       );
+
+      (* This part is not required, but type system will guarantee that
+       * the buffers are still alive. This is useful because Rust cannot
+       * know whether raw pointers used above are alive or not.
+       *)
+      List.iter (
+        function
+        | Bool _ | Int _ | Int64 _ | Pointer _ -> ()
+        | String (_, n)
+        | OptString n
+        | BufferIn n -> pr "drop(c_%s);\n" n;
+        | StringList (_, n) ->
+          pr "drop(c_%s);\n" n;
+          pr "drop(c_%s_v);\n" n;
+      ) args;
+      if optargs <> [] then (
+        pr "drop(optargs_cexpr);\n";
+      );
+
       pr "Ok(";
       let pr = _pr in
+      let pr3 fs = indent 3; pr fs in
       (match ret with
        | RErr -> pr "()"
        | RInt _ | RInt64 _ -> pr "r"
        | RBool _ -> pr "r != 0"
        | RConstString _ ->
-         pr "unsafe{ ffi::CStr::from_ptr(r) }.to_str().unwrap()\n"
+         pr "unsafe{ ffi::CStr::from_ptr(r) }.to_str()?"
        | RString _ ->
-         pr "{";
-         pr "    let s = unsafe {ffi::CStr::from_ptr(r)}\n";
-         pr "       .to_str().unwrap().to_string();\n";
-         pr "    unsafe { free(r as * const c_void) };\n";
-         pr "    s\n";
-         pr "}\n";
+         pr "{\n";
+         pr3 "let s = unsafe { ffi::CStr::from_ptr(r) };\n";
+         pr3 "unsafe { free(r as *const c_void) };\n";
+         pr3 "s.to_str()?.to_string()\n";
+         indent 2; pr "}";
        | RConstOptString _ ->
-         indent 3; pr "if r.is_null() {\n";
-         indent 3; pr "    None\n";
-         indent 3; pr "} else {\n";
-         indent 3; pr "    Some(unsafe { ffi::CStr::from_ptr(r) }.to_str().unwrap())\n";
-         indent 3; pr "}";
+         pr "if r.is_null() {\n";
+         pr3 "None\n";
+         indent 2; pr "} else {\n";
+         pr3 "Some(unsafe { ffi::CStr::from_ptr(r) }.to_str()?)\n";
+         indent 2; pr "}";
        | RStringList _ ->
          pr "{\n";
-         pr "    let s = string_list(r);\n";
-         pr "    free_string_list(r);\n";
-         pr "    s\n";
-         pr "}\n";
+         pr3 "let s = string_list(r);\n";
+         pr3 "free_string_list(r);\n";
+         pr3 "s?\n";
+         indent 2; pr "}";
        | RStruct (_, n) ->
          let sn = camel_name_of_struct n in
          pr "{\n";
-         pr "    let s = %s::from(r);\n" sn;
-         pr "    unsafe { guestfs_free_%s(r) };\n" n;
-         pr "    s\n";
-         pr "}\n";
+         pr3 "let s = %s::try_from(r);\n" sn;
+         pr3 "unsafe { guestfs_free_%s(r) };\n" n;
+         pr3 "s?\n";
+         indent 2; pr "}";
        | RStructList (_, n) ->
          let sn = camel_name_of_struct n in
          pr "{\n";
-         pr "    let l = struct_list::<Raw%s, %s>(r);\n" sn sn;
-         pr "    unsafe { guestfs_free_%s_list(r) };" n;
-         pr "    l\n";
-         pr "}\n";
+         pr3 "let l = struct_list::<Raw%s, %s>(r);\n" sn sn;
+         pr3 "unsafe { guestfs_free_%s_list(r) };\n" n;
+         pr3 "l?\n";
+         indent 2; pr "}";
        | RHashtable _ ->
          pr "{\n";
-         pr "    let h = hashmap(r);\n";
-         pr "    free_string_list(r);\n";
-         pr "    h\n";
-         pr "}\n";
+         pr3 "let h = hashmap(r);\n";
+         pr3 "free_string_list(r);\n";
+         pr3 "h?\n";
+         indent 2; pr "}";
        | RBufferOut _ ->
          pr "{\n";
-         pr "    let s = unsafe { slice::from_raw_parts(r, size) }.to_vec();\n";
-         pr "    unsafe { free(r as * const c_void) } ;\n";
-         pr "    s\n";
-         pr "}\n";
+         pr3 "let s = unsafe { slice::from_raw_parts(r, size) }.to_vec();\n";
+         pr3 "unsafe { free(r as *const c_void) } ;\n";
+         pr3 "s\n";
+         indent 2; pr "}";
       );
       pr ")\n";
       pr "    }\n\n"

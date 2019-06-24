@@ -18,8 +18,6 @@
 
 extern crate guestfs;
 
-use std::default::Default;
-
 #[test]
 fn version() {
     let g = guestfs::Handle::create().expect("create");
