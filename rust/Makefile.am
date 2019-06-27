@@ -18,12 +18,26 @@
 include $(top_srcdir)/subdir-rules.mk
 
 generator_built = \
+	src/bin/bindtests.rs \
 	src/lib.rs
 
 EXTRA_DIST = \
-	$(generator_built)
+	.gitignore \
+	$(generator_built) \
+	tests/*.rs \
+	Cargo.toml \
+	Cargo.lock \
+	run-bindtests \
+	run-tests
 
 if HAVE_RUST
+
+all: src/lib.rs
+	$(top_builddir)/run $(CARGO) build --release
+
+TESTS = run-bindtests run-tests
+
+CLEANFILES += target/*~
 
 endif
 
