@@ -14,18 +14,6 @@
  * You should have received a copy of the GNU General Public License
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
- *)
+*)
 
-val generate_bindtests : unit -> unit
-val generate_erlang_bindtests : unit -> unit
-val generate_golang_bindtests : unit -> unit
-val generate_gobject_js_bindtests : unit -> unit
-val generate_haskell_bindtests : unit -> unit
-val generate_java_bindtests : unit -> unit
-val generate_lua_bindtests : unit -> unit
-val generate_ocaml_bindtests : unit -> unit
-val generate_perl_bindtests : unit -> unit
-val generate_php_bindtests : unit -> unit
-val generate_python_bindtests : unit -> unit
-val generate_ruby_bindtests : unit -> unit
-val generate_rust_bindtests : unit -> unit
+val generate_rust: unit -> unit

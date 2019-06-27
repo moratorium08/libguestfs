@@ -161,6 +161,8 @@ HEADING([Checking for Go])
 m4_include([m4/guestfs-golang.m4])
 HEADING([Checking for GObject Introspection])
 m4_include([m4/guestfs-gobject.m4])
+HEADING([Checking for Rust])
+m4_include([m4/guestfs-rust.m4])
 HEADING([Checking for Vala])
 VAPIGEN_CHECK
 
@@ -315,6 +317,7 @@ AC_CONFIG_FILES([Makefile
                  ruby/Rakefile
                  ruby/examples/Makefile
                  ruby/ext/guestfs/extconf.rb
+                 rust/Makefile
                  sparsify/Makefile
                  sysprep/Makefile
                  test-data/Makefile
