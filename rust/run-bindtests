@@ -1,5 +1,6 @@
-# libguestfs golang bindings
-# Copyright (C) 2019 Red Hat Inc.
+#!/bin/sh -
+# libguestfs Golang bindings
+# Copyright (C) 2013 Red Hat Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -15,29 +16,8 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
-include $(top_srcdir)/subdir-rules.mk
+set -e
 
-generator_built = \
-	src/bin/bindtests.rs \
-	src/lib.rs
-
-EXTRA_DIST = \
-	.gitignore \
-	$(generator_built) \
-	tests/*.rs \
-	Cargo.toml \
-	Cargo.lock \
-	run-bindtests \
-	run-tests
-
-if HAVE_RUST
-
-all: src/lib.rs
-	$(top_builddir)/run $(CARGO) build --release
-
-TESTS = run-bindtests run-tests
-
-CLEANFILES += target/*~
-
-endif
-
+$CARGO run --bin bindtests > bindtests.tmp
+diff -u $srcdir/../bindtests bindtests.tmp
+rm bindtests.tmp
