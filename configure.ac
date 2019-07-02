@@ -431,6 +431,8 @@ AS_ECHO_N(["Vala bindings ....................... "])
 if test "x$ENABLE_VAPIGEN_TRUE" = "x"; then echo "yes"; else echo "no"; fi
 AS_ECHO_N(["bash completion ..................... "])
 if test "x$HAVE_BASH_COMPLETION_TRUE" = "x"; then echo "yes"; else echo "no"; fi
+AS_ECHO_N(["Rust bindings ....................... "])
+if test "x$HAVE_RUST_TRUE" = "x"; then echo "yes"; else echo "no"; fi
 echo
 echo "If any optional component is configured 'no' when you expected 'yes'"
 echo "then you should check the preceding messages."
