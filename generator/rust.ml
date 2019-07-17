@@ -58,6 +58,9 @@ let generate_rust () =
   generate_header CStyle LGPLv2plus;
 
   pr "
+pub mod event;
+
+use event::*;
 use std::collections;
 use std::convert;
 use std::convert::TryFrom;
@@ -66,6 +69,7 @@ use std::os::raw::{c_char, c_int, c_void};
 use std::ptr;
 use std::slice;
 use std::str;
+use std::sync;
 
 #[allow(non_camel_case_types)]
 enum guestfs_h {} // opaque struct
@@ -86,14 +90,41 @@ extern \"C\" {
 const GUESTFS_CREATE_NO_ENVIRONMENT: i64 = 1;
 const GUESTFS_CREATE_NO_CLOSE_ON_EXIT: i64 = 2;
 
-pub struct Handle {
-    g: *mut guestfs_h,
+#[derive(Copy, Clone, Hash, PartialEq, Eq)]
+pub struct EventHandle {
+    eh: i32,
 }
 
-impl Drop for Handle {
+type Callback = Fn(Event, EventHandle, String, Vec<u64>);
+
+impl Guestfs {
+    pub fn create() -> Result<Guestfs, &'static str> {
+        let g = unsafe { guestfs_create() };
+        if g.is_null() {
+            Err(\"failed to create guestfs handle\")
+        } else {
+            Ok(Guestfs { g })
+        }
+    }
+
+    pub fn create_flags(flags: CreateFlags) -> Result<Guestfs, &'static str> {
+        let g = unsafe { guestfs_create_flags(flags.to_libc_int()) };
+        if g.is_null() {
+            Err(\"failed to create guestfs handle\")
+        } else {
+            Ok(Guestfs { g })
+        }
+    }
+}
+
+impl Drop for Guestfs {
     fn drop(&mut self) {
         unsafe { guestfs_close(self.g) }
     }
+}
+
+pub struct Handle {
+    g: sync::Arc<Guestfs>
 }
 
 pub struct CreateFlags {
@@ -274,27 +305,31 @@ impl convert::From<str::Utf8Error> for Error {
 
 impl Handle {
     pub fn create() -> Result<Handle, &'static str> {
-        let g = unsafe { guestfs_create() };
-        if g.is_null() {
-            Err(\"failed to create guestfs handle\")
-        } else {
-            Ok(Handle { g })
-        }
+        Ok(Handle {
+            g: sync::Arc::new(Guestfs::create()?),
+            callbacks: sync::Arc::new(
+                sync::Mutex::new(
+                    collections::HashMap::new()
+                )
+            )
+        })
     }
 
     pub fn create_flags(flags: CreateFlags) -> Result<Handle, &'static str> {
-        let g = unsafe { guestfs_create_flags(flags.to_libc_int()) };
-        if g.is_null() {
-            Err(\"failed to create guestfs handle\")
-        } else {
-            Ok(Handle { g })
-        }
+        Ok(Handle {
+            g: sync::Arc::new(Guestfs::create_flags(flags)?),
+            callbacks: sync::Arc::new(
+                sync::Mutex::new(
+                    collections::HashMap::new()
+                )
+            )
+        })
     }
 
     fn get_error_from_handle(&self, operation: &'static str) -> Error {
-        let c_msg = unsafe { guestfs_last_error(self.g) };
+        let c_msg = unsafe { guestfs_last_error(self.g.g) };
         let message = unsafe { ffi::CStr::from_ptr(c_msg).to_str().unwrap().to_string() };
-        let errno = unsafe { guestfs_last_errno(self.g) };
+        let errno = unsafe { guestfs_last_errno(self.g.g) };
         Error::API(APIError {
             operation,
             message,
@@ -388,6 +423,43 @@ impl UUID {
       pr "    }\n";
       pr "}\n"
   ) external_structs;
+
+  (* event enum *)
+  pr "\n";
+  pr "pub enum Event {\n";
+  List.iter (
+    fun (name, _) ->
+      pr "    %s,\n" (snake2caml name)
+  ) events;
+  pr "}\n\n";
+
+  pr "impl Event {\n";
+  pr "    pub fn to_u64(&self) -> u64 {\n";
+  pr "        match self {\n";
+  List.iter (
+    fun (name, i) ->
+      pr "            Event::%s => %d,\n" (snake2caml name) i
+  ) events;
+  pr "        }\n";
+  pr "    }\n";
+  pr "    pub fn from_bitmask(bitmask: u64) -> Option<Event> {\n";
+  pr "        match bitmask {\n";
+  List.iter (
+    fun (name, i) ->
+      pr "            %d => Some(Event::%s),\n" i (snake2caml name)
+  ) events;
+  pr "            _ => None,\n";
+  pr "        }\n";
+  pr "    }\n";
+  pr "}\n\n";
+
+
+  pr "const EVENT_ALL: [Event; %d] = [\n" (List.length events);
+  List.iter (
+    fun (name, _) ->
+      pr "    Event::%s,\n" (snake2caml name)
+  ) events;
+  pr "];\n";
 
   (* generate free functionf of structs *)
   pr "\n";
@@ -692,7 +764,7 @@ impl UUID {
 
       pr "\n";
 
-      pr "let r = unsafe { %s(self.g" f.c_function;
+      pr "let r = unsafe { %s(self.g.g" f.c_function;
       let pr = _pr in
       List.iter (
         fun arg ->
