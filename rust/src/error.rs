@@ -19,6 +19,7 @@
 use crate::base::*;
 use std::convert;
 use std::ffi;
+use std::io;
 use std::os::raw::{c_char, c_int};
 use std::str;
 
@@ -40,6 +41,7 @@ pub enum Error {
     API(APIError),
     IllegalString(ffi::NulError),
     Utf8Error(str::Utf8Error),
+    UnixError(io::Error, &'static str),
 }
 
 impl convert::From<ffi::NulError> for Error {
@@ -52,6 +54,10 @@ impl convert::From<str::Utf8Error> for Error {
     fn from(error: str::Utf8Error) -> Self {
         Error::Utf8Error(error)
     }
+}
+
+pub(crate) fn unix_error(operation: &'static str) -> Error {
+    Error::UnixError(io::Error::last_os_error(), operation)
 }
 
 impl Handle {

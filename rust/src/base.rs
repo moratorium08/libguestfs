@@ -20,7 +20,10 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
+use crate::event;
+use std::collections;
 use std::str;
+use std::sync;
 
 #[allow(non_camel_case_types)]
 #[repr(C)]
@@ -40,6 +43,7 @@ const GUESTFS_CREATE_NO_CLOSE_ON_EXIT: i64 = 2;
 
 pub struct Handle {
     pub(crate) g: *mut guestfs_h,
+    pub(crate) callbacks: collections::HashMap<event::EventHandle, sync::Arc<event::Callback>>,
 }
 
 impl Handle {
@@ -48,7 +52,8 @@ impl Handle {
         if g.is_null() {
             Err("failed to create guestfs handle")
         } else {
-            Ok(Handle { g })
+            let callbacks = collections::HashMap::new();
+            Ok(Handle { g, callbacks })
         }
     }
 
@@ -57,7 +62,8 @@ impl Handle {
         if g.is_null() {
             Err("failed to create guestfs handle")
         } else {
-            Ok(Handle { g })
+            let callbacks = collections::HashMap::new();
+            Ok(Handle { g, callbacks })
         }
     }
 }
