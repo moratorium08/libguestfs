@@ -6,25 +6,28 @@ use std::os::raw::{c_char, c_void};
 use std::slice;
 use std::sync;
 
-type GuestfsEventCallback = 
-    extern "C" fn(
-        *const base::guestfs_h,
-        *const c_void, u64, i32, i32, *const i8,
-        usize, *const u64, usize
-        );
+type GuestfsEventCallback = extern "C" fn(
+    *const base::guestfs_h,
+    *const c_void,
+    u64,
+    i32,
+    i32,
+    *const i8,
+    usize,
+    *const u64,
+    usize,
+);
 
 #[link(name = "guestfs")]
 extern "C" {
     fn guestfs_set_event_callback(
-        g: *const base::guestfs_h, 
-        cb: GuestfsEventCallback, 
-        event_bitmask: u64, 
-        flags: i32, 
-        opaque: *const c_void) -> i32;
-    fn guestfs_delete_event_callback(
-        g: *const base::guestfs_h, 
-        eh: i32
-    );
+        g: *const base::guestfs_h,
+        cb: GuestfsEventCallback,
+        event_bitmask: u64,
+        flags: i32,
+        opaque: *const c_void,
+    ) -> i32;
+    fn guestfs_delete_event_callback(g: *const base::guestfs_h, eh: i32);
     fn guestfs_event_to_string(bitmask: u64) -> *const c_char;
     fn free(buf: *const c_void);
 }
@@ -45,9 +48,13 @@ fn events_to_bitmask(v: &[guestfs::Event]) -> u64 {
 }
 
 impl base::Handle {
-    pub fn set_event_callback<'a, C>(&'a mut self, callback: C, events: &[guestfs::Event]) 
-        -> Result<EventHandle, error::Error>
-    where C: Fn(guestfs::Event, EventHandle, &[i8], &[u64]) + 'static
+    pub fn set_event_callback<'a, C>(
+        &'a mut self,
+        callback: C,
+        events: &[guestfs::Event],
+    ) -> Result<EventHandle, error::Error>
+    where
+        C: Fn(guestfs::Event, EventHandle, &[i8], &[u64]) + 'static,
     {
         extern "C" fn trampoline<C>(
             g: *const base::guestfs_h,
@@ -59,7 +66,9 @@ impl base::Handle {
             buf_len: usize,
             array: *const u64,
             array_len: usize,
-        ) where C: Fn(guestfs::Event, EventHandle, &[i8], &[u64]) + 'static {
+        ) where
+            C: Fn(guestfs::Event, EventHandle, &[i8], &[u64]) + 'static,
+        {
             // trampoline function
             // c.f. https://s3.amazonaws.com/temp.michaelfbryan.com/callbacks/index.html
 
@@ -67,7 +76,7 @@ impl base::Handle {
                 Some(x) => x,
                 None => panic!("Failed to parse bitmask: {}", event),
             };
-            let eh = EventHandle{ eh: event_handle };
+            let eh = EventHandle { eh: event_handle };
             let buf = unsafe { slice::from_raw_parts(buf, buf_len) };
             let array = unsafe { slice::from_raw_parts(array, array_len) };
 
@@ -80,7 +89,7 @@ impl base::Handle {
 
         let eh = {
             // Weak::into_raw is nightly.
-            // In order to make sure that callback is freed when handle is freed, 
+            // In order to make sure that callback is freed when handle is freed,
             // lifetime is explicitly declared.
             let ptr: &'a sync::Arc<C> = Box::leak(Box::new(callback.clone()));
             unsafe {
@@ -89,7 +98,7 @@ impl base::Handle {
                     trampoline::<C>,
                     event_bitmask,
                     0,
-                    ptr as *const sync::Arc<C> as *const c_void
+                    ptr as *const sync::Arc<C> as *const c_void,
                 )
             }
         };
@@ -98,9 +107,9 @@ impl base::Handle {
         }
         self.callbacks.insert(EventHandle { eh }, callback);
 
-        Ok(EventHandle{ eh })
+        Ok(EventHandle { eh })
     }
-    
+
     pub fn delete_event_callback(&mut self, eh: EventHandle) -> Result<(), error::Error> {
         unsafe {
             guestfs_delete_event_callback(self.g, eh.eh);
