@@ -18,21 +18,21 @@
 
 extern crate guestfs;
 
-fn create<'a>() -> guestfs::Handle<'a> {
-    match guestfs::Handle::create() {
-        Ok(g) => g,
-        Err(e) => panic!("fail: {:?}", e),
-    }
-}
-
-fn ignore(_x: guestfs::Handle, _y: guestfs::Handle, _z: guestfs::Handle) {
-    // drop
-}
+use std::sync::{Arc, Mutex};
 
 #[test]
-fn create_multiple() {
-    let x = create();
-    let y = create();
-    let z = create();
-    ignore(x, y, z)
+fn close_event() {
+    let close_invoked = Arc::new(Mutex::new(0));
+    {
+        let mut g = guestfs::Handle::create().expect("create");
+        g.set_event_callback(
+            |_, _, _, _| {
+                let mut data = (&close_invoked).lock().unwrap();
+                *data += 1;
+            },
+            &[guestfs::Event::Close],
+        )
+        .unwrap();
+    }
+    assert_eq!(*((&close_invoked).lock().unwrap()), 1);
 }

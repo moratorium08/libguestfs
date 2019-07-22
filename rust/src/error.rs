@@ -20,6 +20,7 @@ use crate::base;
 use crate::utils;
 use std::convert;
 use std::ffi;
+use std::io;
 use std::os::raw::{c_char, c_int};
 use std::str;
 
@@ -41,6 +42,7 @@ pub enum Error {
     API(APIError),
     IllegalString(ffi::NulError),
     Utf8Error(str::Utf8Error),
+    UnixError(io::Error, &'static str),
     Create,
 }
 
@@ -56,7 +58,11 @@ impl convert::From<str::Utf8Error> for Error {
     }
 }
 
-impl base::Handle {
+pub(crate) fn unix_error(operation: &'static str) -> Error {
+    Error::UnixError(io::Error::last_os_error(), operation)
+}
+
+impl<'a> base::Handle<'a> {
     pub(crate) fn get_error_from_handle(&self, operation: &'static str) -> Error {
         let c_msg = unsafe { guestfs_last_error(self.g) };
         let message = unsafe { utils::char_ptr_to_string(c_msg).unwrap() };
