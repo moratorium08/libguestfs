@@ -392,7 +392,7 @@ extern \"C\" {
   pr "}\n";
 
 
-  pr "impl Handle {\n";
+  pr "impl<'a> Handle<'a> {\n";
   List.iter (
     fun ({ name = name; shortdesc = shortdesc; longdesc = longdesc;
           style = (ret, args, optargs) } as f) ->
