@@ -398,7 +398,7 @@ extern \"C\" {
   pr "}\n";
 
 
-  pr "impl Handle {\n";
+  pr "impl<'a> Handle<'a> {\n";
   List.iter (
     fun ({ name = name; shortdesc = shortdesc; longdesc = longdesc;
           style = (ret, args, optargs) } as f) ->
@@ -552,8 +552,9 @@ extern \"C\" {
        | RString _ ->
          pr "{\n";
          pr3 "let s = unsafe { ffi::CStr::from_ptr(r) };\n";
+         pr3 "let s = s.to_str()?.to_string();\n";
          pr3 "unsafe { free(r as *const c_void) };\n";
-         pr3 "s.to_str()?.to_string()\n";
+         pr3 "s\n";
          indent 2; pr "}";
        | RConstOptString _ ->
          pr "if r.is_null() {\n";

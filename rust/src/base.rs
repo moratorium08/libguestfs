@@ -21,6 +21,7 @@
  */
 
 use crate::event;
+use crate::guestfs;
 use std::collections;
 use std::str;
 use std::sync;
@@ -41,13 +42,14 @@ extern "C" {
 const GUESTFS_CREATE_NO_ENVIRONMENT: i64 = 1;
 const GUESTFS_CREATE_NO_CLOSE_ON_EXIT: i64 = 2;
 
-pub struct Handle {
+pub struct Handle<'a> {
     pub(crate) g: *mut guestfs_h,
-    pub(crate) callbacks: collections::HashMap<event::EventHandle, sync::Arc<event::Callback>>,
+    pub(crate) callbacks: collections::HashMap<event::EventHandle, 
+        sync::Arc<Fn(guestfs::Event, event::EventHandle, &[u8], &[u64]) + 'a>>,
 }
 
-impl Handle {
-    pub fn create() -> Result<Handle, &'static str> {
+impl<'a> Handle<'a> {
+    pub fn create() -> Result<Handle<'a>, &'static str> {
         let g = unsafe { guestfs_create() };
         if g.is_null() {
             Err("failed to create guestfs handle")
@@ -57,7 +59,7 @@ impl Handle {
         }
     }
 
-    pub fn create_flags(flags: CreateFlags) -> Result<Handle, &'static str> {
+    pub fn create_flags(flags: CreateFlags) -> Result<Handle<'a>, &'static str> {
         let g = unsafe { guestfs_create_flags(flags.to_libc_int()) };
         if g.is_null() {
             Err("failed to create guestfs handle")
@@ -68,7 +70,7 @@ impl Handle {
     }
 }
 
-impl Drop for Handle {
+impl<'a> Drop for Handle<'a> {
     fn drop(&mut self) {
         unsafe { guestfs_close(self.g) }
     }

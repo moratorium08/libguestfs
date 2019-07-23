@@ -37,7 +37,7 @@ pub struct EventHandle {
     eh: i32,
 }
 
-pub type Callback = Fn(guestfs::Event, EventHandle, &[i8], &[u64]);
+pub type Callback = FnMut(guestfs::Event, EventHandle, &[i8], &[u64]);
 
 fn events_to_bitmask(v: &[guestfs::Event]) -> u64 {
     let mut r = 0u64;
@@ -47,33 +47,47 @@ fn events_to_bitmask(v: &[guestfs::Event]) -> u64 {
     r
 }
 
+pub fn event_to_string(events: &[guestfs::Event]) -> Result<String, error::Error> {
+    let bitmask = events_to_bitmask(events);
+
+    let r = unsafe { guestfs_event_to_string(bitmask) };
+    if r.is_null() {
+        Err(error::unix_error("event_to_string"))
+    } else {
+        let s = unsafe { ffi::CStr::from_ptr(r) };
+        let s = s.to_str()?.to_string();
+        unsafe { free(r as *const c_void) };
+        Ok(s)
+    }
+}
+
 /* -- Why Not Box<Callback> but Arc<Callback> (in struct base::Handle)?  --
  *  Assume that there are more than threads. While callback is running,
  *  if a thread frees the handle, automatically the buffer is freed if Box<Callback>
  *  is used. Therefore Arc<Callback> is used.
  */
 
-impl base::Handle {
-    pub fn set_event_callback<'a, C>(
-        &'a mut self,
+impl<'a> base::Handle<'a> {
+    pub fn set_event_callback<C: 'a>(
+        &mut self,
         callback: C,
         events: &[guestfs::Event],
     ) -> Result<EventHandle, error::Error>
     where
-        C: Fn(guestfs::Event, EventHandle, &[i8], &[u64]) + 'static,
+        C: Fn(guestfs::Event, EventHandle, &[u8], &[u64]) 
     {
         extern "C" fn trampoline<C>(
-            g: *const base::guestfs_h,
+            _g: *const base::guestfs_h,
             opaque: *const c_void,
             event: u64,
             event_handle: i32,
-            flags: i32,
+            _flags: i32,
             buf: *const c_char,
             buf_len: usize,
             array: *const u64,
             array_len: usize,
         ) where
-            C: Fn(guestfs::Event, EventHandle, &[i8], &[u64]) + 'static,
+            C: Fn(guestfs::Event, EventHandle, &[u8], &[u64])
         {
             // trampoline function
             // c.f. https://s3.amazonaws.com/temp.michaelfbryan.com/callbacks/index.html
@@ -83,14 +97,14 @@ impl base::Handle {
                 None => panic!("Failed to parse bitmask: {}", event),
             };
             let eh = EventHandle { eh: event_handle };
-            let buf = unsafe { slice::from_raw_parts(buf, buf_len) };
+            let buf = unsafe { slice::from_raw_parts(buf as *const u8, buf_len) };
             let array = unsafe { slice::from_raw_parts(array, array_len) };
 
             let callback_ptr = unsafe { &*(opaque as *const sync::Arc<C>) };
             let callback = sync::Arc::clone(&callback_ptr);
             callback(event, eh, buf, array)
         }
-        let callback = sync::Arc::new(callback);
+        let callback = sync::Arc::<C>::new(callback);
         let event_bitmask = events_to_bitmask(events);
 
         let eh = {
@@ -122,18 +136,5 @@ impl base::Handle {
         }
         self.callbacks.remove(&eh);
         Ok(())
-    }
-
-    pub fn event_to_string(&self, events: &[guestfs::Event]) -> Result<String, error::Error> {
-        let bitmask = events_to_bitmask(events);
-
-        let r = unsafe { guestfs_event_to_string(bitmask) };
-        if r.is_null() {
-            Err(error::unix_error("event_to_string"))
-        } else {
-            let s = unsafe { ffi::CStr::from_ptr(r) };
-            unsafe { free(r as *const c_void) };
-            Ok(s.to_str()?.to_string())
-        }
     }
 }

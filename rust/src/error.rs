@@ -60,7 +60,7 @@ pub(crate) fn unix_error(operation: &'static str) -> Error {
     Error::UnixError(io::Error::last_os_error(), operation)
 }
 
-impl Handle {
+impl<'a> Handle<'a> {
     pub(crate) fn get_error_from_handle(&self, operation: &'static str) -> Error {
         let c_msg = unsafe { guestfs_last_error(self.g) };
         let message = unsafe { ffi::CStr::from_ptr(c_msg).to_str().unwrap().to_string() };
