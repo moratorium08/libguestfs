@@ -1,3 +1,21 @@
+/* libguestfs Rust bindings
+ * Copyright (C) 2019 Hiroyuki Katsura <hiroyuki.katsura.0513@gmail.com>
+ *
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2 of the License, or (at your option) any later version.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
+ */
+
 use crate::base;
 use crate::error;
 use crate::guestfs;
@@ -74,7 +92,7 @@ impl<'a> base::Handle<'a> {
         events: &[guestfs::Event],
     ) -> Result<EventHandle, error::Error>
     where
-        C: Fn(guestfs::Event, EventHandle, &[u8], &[u64]) 
+        C: Fn(guestfs::Event, EventHandle, &[u8], &[u64]),
     {
         extern "C" fn trampoline<C>(
             _g: *const base::guestfs_h,
@@ -87,7 +105,7 @@ impl<'a> base::Handle<'a> {
             array: *const u64,
             array_len: usize,
         ) where
-            C: Fn(guestfs::Event, EventHandle, &[u8], &[u64])
+            C: Fn(guestfs::Event, EventHandle, &[u8], &[u64]),
         {
             // trampoline function
             // c.f. https://s3.amazonaws.com/temp.michaelfbryan.com/callbacks/index.html

@@ -20,7 +20,6 @@ use crate::error;
 use crate::event;
 use crate::guestfs;
 use std::collections;
-use std::str;
 use std::sync;
 
 #[allow(non_camel_case_types)]
@@ -41,12 +40,14 @@ const GUESTFS_CREATE_NO_CLOSE_ON_EXIT: i64 = 2;
 
 pub struct Handle<'a> {
     pub(crate) g: *mut guestfs_h,
-    pub(crate) callbacks: collections::HashMap<event::EventHandle,
-        sync::Arc<Fn(guestfs::Event, event::EventHandle, &[u8], &[u64]) + 'a>>,
+    pub(crate) callbacks: collections::HashMap<
+        event::EventHandle,
+        sync::Arc<Fn(guestfs::Event, event::EventHandle, &[u8], &[u64]) + 'a>,
+    >,
 }
 
 impl<'a> Handle<'a> {
-    pub fn create() -> Result<Handle<'a>,  error::Error> {
+    pub fn create() -> Result<Handle<'a>, error::Error> {
         let g = unsafe { guestfs_create() };
         if g.is_null() {
             Err(error::Error::Create)
