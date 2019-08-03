@@ -19,6 +19,7 @@
 use crate::base;
 use crate::error;
 use crate::guestfs;
+use crate::utils;
 use std::ffi;
 use std::os::raw::{c_char, c_void};
 use std::slice;
@@ -72,10 +73,9 @@ pub fn event_to_string(events: &[guestfs::Event]) -> Result<String, error::Error
     if r.is_null() {
         Err(error::unix_error("event_to_string"))
     } else {
-        let s = unsafe { ffi::CStr::from_ptr(r) };
-        let s = s.to_str()?.to_string();
+        let s = unsafe { utils::char_ptr_to_string(r) };
         unsafe { free(r as *const c_void) };
-        Ok(s)
+        Ok(s?)
     }
 }
 

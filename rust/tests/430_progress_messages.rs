@@ -19,11 +19,12 @@
 extern crate guestfs;
 
 use std::default::Default;
-use std::sync::{Arc, Mutex};
+use std::cell::RefCell;
+use std::rc::Rc;
 
 #[test]
 fn progress_messages() {
-    let callback_invoked = Arc::new(Mutex::new(0));
+    let callback_invoked = Rc::new(RefCell::new(0));
     {
         let mut g = guestfs::Handle::create().expect("create");
         g.add_drive("/dev/null", Default::default()).unwrap();
@@ -32,30 +33,27 @@ fn progress_messages() {
         let eh = g
             .set_event_callback(
                 |_, _, _, _| {
-                    let mut data = (&callback_invoked).lock().unwrap();
-                    *data += 1;
+                    *callback_invoked.borrow_mut() += 1;
                 },
                 &[guestfs::Event::Progress],
             )
             .unwrap();
         assert_eq!("ok", g.debug("progress", &["5"]).unwrap());
-        assert!(*(&callback_invoked).lock().unwrap() > 0);
+        assert!(*callback_invoked.borrow() > 0);
 
-        *(&callback_invoked).lock().unwrap() = 0;
+        *callback_invoked.borrow_mut() = 0;
         g.delete_event_callback(eh).unwrap();
         assert_eq!("ok", g.debug("progress", &["5"]).unwrap());
-        assert_eq!(*(&callback_invoked).lock().unwrap(), 0);
+        assert_eq!(*callback_invoked.borrow(), 0);
 
         g.set_event_callback(
             |_, _, _, _| {
-                let mut data = (&callback_invoked).lock().unwrap();
-                *data += 1;
+                *callback_invoked.borrow_mut() += 1;
             },
             &[guestfs::Event::Progress],
         )
         .unwrap();
         assert_eq!("ok", g.debug("progress", &["5"]).unwrap());
-        assert!(*(&callback_invoked).lock().unwrap() > 0);
     }
-    assert!(*(&callback_invoked).lock().unwrap() > 0);
+    assert!(*callback_invoked.borrow() > 0);
 }

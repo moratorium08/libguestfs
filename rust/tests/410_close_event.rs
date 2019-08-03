@@ -18,21 +18,22 @@
 
 extern crate guestfs;
 
-use std::sync::{Arc, Mutex};
+use std::rc::Rc;
+use std::cell::RefCell;
 
 #[test]
 fn close_event() {
-    let close_invoked = Arc::new(Mutex::new(0));
+    let close_invoked = Rc::new(RefCell::new(0));
     {
         let mut g = guestfs::Handle::create().expect("create");
         g.set_event_callback(
             |_, _, _, _| {
-                let mut data = (&close_invoked).lock().unwrap();
-                *data += 1;
+                *close_invoked.borrow_mut() += 1;
             },
             &[guestfs::Event::Close],
         )
         .unwrap();
+        assert_eq!(*close_invoked.borrow(), 0);
     }
-    assert_eq!(*((&close_invoked).lock().unwrap()), 1);
+    assert_eq!(*close_invoked.borrow(), 1);
 }
