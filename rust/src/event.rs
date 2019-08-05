@@ -77,12 +77,6 @@ pub fn event_to_string(events: &[guestfs::Event]) -> Result<String, error::Error
     }
 }
 
-/* -- Why Not Box<Callback> but Arc<Callback> (in struct base::Handle)?  --
- *  Assume that there are more than threads. While callback is running,
- *  if a thread frees the handle, automatically the buffer is freed if Box<Callback>
- *  is used. Therefore Arc<Callback> is used.
- */
-
 impl<'a> base::Handle<'a> {
     pub fn set_event_callback<C: 'a>(
         &mut self,
