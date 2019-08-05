@@ -18,8 +18,8 @@
 
 extern crate guestfs;
 
-use std::default::Default;
 use std::cell::RefCell;
+use std::default::Default;
 use std::rc::Rc;
 
 #[test]

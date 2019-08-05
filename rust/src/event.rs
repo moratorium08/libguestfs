@@ -20,10 +20,8 @@ use crate::base;
 use crate::error;
 use crate::guestfs;
 use crate::utils;
-use std::ffi;
 use std::os::raw::{c_char, c_void};
 use std::slice;
-use std::sync;
 
 type GuestfsEventCallback = extern "C" fn(
     *const base::guestfs_h,
@@ -92,7 +90,7 @@ impl<'a> base::Handle<'a> {
         events: &[guestfs::Event],
     ) -> Result<EventHandle, error::Error>
     where
-        C: Fn(guestfs::Event, EventHandle, &[u8], &[u64]),
+        C: Fn(guestfs::Event, EventHandle, &[u8], &[u64]) + 'a,
     {
         extern "C" fn trampoline<C>(
             _g: *const base::guestfs_h,
@@ -118,25 +116,27 @@ impl<'a> base::Handle<'a> {
             let buf = unsafe { slice::from_raw_parts(buf as *const u8, buf_len) };
             let array = unsafe { slice::from_raw_parts(array, array_len) };
 
-            let callback_ptr = unsafe { &*(opaque as *const sync::Arc<C>) };
-            let callback = sync::Arc::clone(&callback_ptr);
+            let callback: &Box<dyn Fn(guestfs::Event, EventHandle, &[u8], &[u64])> =
+                Box::leak(unsafe { Box::from_raw(opaque as *mut _) });
             callback(event, eh, buf, array)
         }
-        let callback = sync::Arc::<C>::new(callback);
+
+        // Because trait pointer is fat pointer, in order to pass it to API,
+        // double Box is used.
+        let callback: Box<Box<dyn Fn(guestfs::Event, EventHandle, &[u8], &[u64]) + 'a>> =
+            Box::new(Box::new(callback));
+        let ptr = Box::into_raw(callback);
+        let callback = unsafe { Box::from_raw(ptr) };
         let event_bitmask = events_to_bitmask(events);
 
         let eh = {
-            // Weak::into_raw is nightly.
-            // In order to make sure that callback is freed when handle is freed,
-            // lifetime is explicitly declared.
-            let ptr: &'a sync::Arc<C> = Box::leak(Box::new(callback.clone()));
             unsafe {
                 guestfs_set_event_callback(
                     self.g,
                     trampoline::<C>,
                     event_bitmask,
                     0,
-                    ptr as *const sync::Arc<C> as *const c_void,
+                    ptr as *const c_void,
                 )
             }
         };

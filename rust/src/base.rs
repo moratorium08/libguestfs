@@ -20,7 +20,6 @@ use crate::error;
 use crate::event;
 use crate::guestfs;
 use std::collections;
-use std::sync;
 
 #[allow(non_camel_case_types)]
 #[repr(C)]
@@ -42,7 +41,7 @@ pub struct Handle<'a> {
     pub(crate) g: *mut guestfs_h,
     pub(crate) callbacks: collections::HashMap<
         event::EventHandle,
-        sync::Arc<Fn(guestfs::Event, event::EventHandle, &[u8], &[u64]) + 'a>,
+        Box<Box<dyn Fn(guestfs::Event, event::EventHandle, &[u8], &[u64]) + 'a>>,
     >,
 }
 

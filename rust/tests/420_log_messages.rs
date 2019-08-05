@@ -18,9 +18,9 @@
 
 extern crate guestfs;
 
-use std::str;
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::str;
 
 #[test]
 fn log_messages() {
