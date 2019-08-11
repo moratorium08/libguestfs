@@ -52,6 +52,14 @@ let translate_bad_symbols s =
   else
     s
 
+(* output longdesc to the rust file *)
+let pr_longdesc name longdesc indent_depth =
+  let l = pod2text name longdesc in
+  List.iter (fun x ->
+      indent indent_depth;
+      pr "/// %s\n" x;
+    ) l
+
 let generate_rust () =
   generate_header ~copyrights CStyle LGPLv2plus;
 
@@ -398,6 +406,8 @@ extern \"C\" {
           style = (ret, args, optargs) } as f) ->
       let cname = snake2caml name in
       pr "    /// %s\n" shortdesc;
+      pr "    ///\n";
+      pr_longdesc name longdesc 1;
       pr "    #[allow(non_snake_case)]\n";
       pr "    pub fn %s" name;
 
