@@ -52,6 +52,13 @@ let translate_bad_symbols s =
   else
     s
 
+(* output longdesc to the rust file *)
+let pr_longdesc name longdesc =
+  (* Lines should be at most 100 characters *)
+  (* And Each line begins with '    /// ' *)
+  let l = pod2text ~width:92 name longdesc in
+  List.iter (pr "    /// %s\n") l
+
 let generate_rust () =
   generate_header ~copyrights CStyle LGPLv2plus;
 
@@ -398,6 +405,8 @@ extern \"C\" {
           style = (ret, args, optargs) } as f) ->
       let cname = snake2caml name in
       pr "    /// %s\n" shortdesc;
+      pr "    ///\n";
+      pr_longdesc name longdesc;
       pr "    #[allow(non_snake_case)]\n";
       pr "    pub fn %s" name;
 
